@@ -2,7 +2,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 services:
   portfolio:
-    image: portfolio-terminal:dev
+    image: portfolio-terminal:${TAG:-dev}
     environment:
       FETCH_TIMES: ""
     volumes:
