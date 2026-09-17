@@ -12,9 +12,11 @@ H = {'X-Requested-With': 'portfolio'}
 def client(monkeypatch):
     started = []
     monkeypatch.setattr(jobs, 'start', lambda kind, **kw: started.append(kind))
+    server._release_guest_session()
     c = TestClient(server.app)
     c.started = started
-    return c
+    yield c
+    server._release_guest_session()
 
 
 def test_healthz_is_public(client):
@@ -52,6 +54,35 @@ def test_guest_mode_ignores_basic_auth(client, monkeypatch):
     monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
     client.cookies.clear()
     assert client.get('/', auth=AUTH).status_code == 401
+
+
+def test_guest_workspace_is_bound_to_one_browser(client, monkeypatch):
+    monkeypatch.setattr(server, 'GUEST_MODE', True)
+    monkeypatch.setattr(server, 'GUEST_TOKEN', 'guest-secret-token')
+    monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
+    assert client.get('/?token=guest-secret-token', follow_redirects=False).status_code == 303
+    assert client.get('/').status_code == 200
+
+    other = TestClient(server.app)
+    denied = other.get('/?token=guest-secret-token', follow_redirects=False)
+    assert denied.status_code == 409
+    assert 'another browser' in denied.text
+    assert other.get('/').status_code == 401
+
+
+def test_expired_browser_session_erases_before_token_reuse(client, monkeypatch, fixture_bytes):
+    monkeypatch.setattr(server, 'GUEST_MODE', True)
+    monkeypatch.setattr(server, 'GUEST_TOKEN', 'guest-secret-token')
+    monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
+    assert client.get('/?token=guest-secret-token', follow_redirects=False).status_code == 303
+    server.store.ACTIVITIES.write_bytes(fixture_bytes('activities_jan.csv')[1])
+    with server._guest_session_lock:
+        server._guest_active['expires'] = 0
+
+    other = TestClient(server.app)
+    assert other.get('/?token=guest-secret-token', follow_redirects=False).status_code == 303
+    assert not server.store.ACTIVITIES.exists()
+    assert client.get('/').status_code == 401
 
 
 def test_posts_need_csrf_header(client):
@@ -114,6 +145,8 @@ def test_end_guest_session_erases_private_data_and_cookie(client, monkeypatch, f
     assert 'pt_guest_session=""' in r.headers['set-cookie']
     assert not server.store.ACTIVITIES.exists()
     assert client.get('/').status_code == 401
+    other = TestClient(server.app)
+    assert other.get('/?token=guest-secret-token', follow_redirects=False).status_code == 303
 
 
 def test_upload_size_limit(client, monkeypatch):

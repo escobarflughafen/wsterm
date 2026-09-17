@@ -3,7 +3,7 @@
 Dev:   .venv/bin/uvicorn --app-dir pipeline server:app --reload   (set ALLOW_NO_AUTH=1 for local use without a password)
 Prod:  see Dockerfile / docker-compose.yml. Run exactly one worker: jobs and the scheduler live in-process.
 """
-import base64, contextlib, hashlib, hmac, json, logging, re, secrets, shutil, threading, time
+import base64, contextlib, hashlib, json, logging, re, secrets, shutil, threading, time
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -23,6 +23,8 @@ TICKER = re.compile(r'^[A-Za-z0-9.\-^=]{1,24}$')
 CSRF_HEADER = 'x-requested-with'
 PUBLIC = {'/healthz'}
 GUEST_COOKIE = 'pt_guest_session'
+_guest_session_lock = threading.Lock()
+_guest_active = dict(digest=None, expires=0.0)
 
 if GUEST_MODE and not GUEST_TOKEN:
     raise SystemExit('Refusing to start guest mode without GUEST_TOKEN.')
@@ -48,8 +50,45 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 
-def _guest_session():
-    return hmac.new(GUEST_TOKEN.encode(), b'portfolio-terminal-guest-session-v1', hashlib.sha256).hexdigest()
+def _guest_digest(value):
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _guest_session_valid(value):
+    if not value:
+        return False
+    with _guest_session_lock:
+        digest = _guest_active['digest']
+        return bool(digest and time.time() < _guest_active['expires'] and
+                    secrets.compare_digest(_guest_digest(value), digest))
+
+
+def _new_guest_session():
+    """Claim the single guest workspace for one browser; another browser cannot reuse the URL token."""
+    value = secrets.token_urlsafe(32)
+    with _guest_session_lock:
+        if _guest_active['digest'] and time.time() < _guest_active['expires']:
+            return None
+        _guest_active.update(digest=_guest_digest(value), expires=time.time() + GUEST_SESSION_HOURS * 3600)
+    return value
+
+
+def _release_guest_session():
+    with _guest_session_lock:
+        _guest_active.update(digest=None, expires=0.0)
+
+
+def _expire_guest_session():
+    """Erase an expired browser's workspace before the URL token can claim it again."""
+    with _guest_session_lock:
+        if not _guest_active['digest'] or time.time() < _guest_active['expires']:
+            return False
+        if jobs.snapshot()['job']['running']:
+            return True
+        _erase_guest_private_data()
+        _guest_active.update(digest=None, expires=0.0)
+        log.info('expired guest browser session: private portfolio state erased')
+        return False
 
 
 def _security_headers(response, path):
@@ -66,16 +105,24 @@ def _security_headers(response, path):
 async def guard(request: Request, call_next):
     path = request.url.path
     if path not in PUBLIC and GUEST_MODE:
+        if _expire_guest_session():
+            return _security_headers(PlainTextResponse('Guest session expired; cleanup is waiting for the active job', 409), path)
         supplied = request.query_params.get('token', '')
+        browser_session = request.cookies.get(GUEST_COOKIE, '')
+        browser_valid = _guest_session_valid(browser_session)
         if supplied and secrets.compare_digest(supplied, GUEST_TOKEN) and request.method in ('GET', 'HEAD'):
             clean_query = urlencode([(k, v) for k, v in request.query_params.multi_items() if k != 'token'])
             response = RedirectResponse(path + (f'?{clean_query}' if clean_query else ''), status_code=303)
-            response.set_cookie(GUEST_COOKIE, _guest_session(), max_age=GUEST_SESSION_HOURS * 3600, httponly=True,
-                                secure=GUEST_COOKIE_SECURE, samesite='strict', path='/')
+            if not browser_valid:
+                browser_session = _new_guest_session()
+                if browser_session is None:
+                    return _security_headers(PlainTextResponse(
+                        'This guest workspace is active in another browser. End that session before starting a new one.', 409), path)
+                response.set_cookie(GUEST_COOKIE, browser_session, max_age=GUEST_SESSION_HOURS * 3600, httponly=True,
+                                    secure=GUEST_COOKIE_SECURE, samesite='strict', path='/')
             response.headers['Cache-Control'] = 'no-store'
             return _security_headers(response, path)
-        session = request.cookies.get(GUEST_COOKIE, '')
-        if not session or not secrets.compare_digest(session, _guest_session()):
+        if not browser_valid:
             return _security_headers(PlainTextResponse('Guest token required', 401), path)
     elif path not in PUBLIC and APP_PASSWORD:
         ok = False
@@ -244,11 +291,24 @@ def end_guest_session():
         raise HTTPException(404)
     if jobs.snapshot()['job']['running']:
         return JSONResponse(dict(ok=False, log='A job is running; end the session when it finishes'), 409)
+    try:
+        with _guest_session_lock:
+            _erase_guest_private_data()
+            _guest_active.update(digest=None, expires=0.0)
+    except RuntimeError as e:
+        return JSONResponse(dict(ok=False, log=str(e)), 500)
+    response = JSONResponse(dict(ok=True, erased=True))
+    response.delete_cookie(GUEST_COOKIE, path='/', secure=GUEST_COOKIE_SECURE, httponly=True, samesite='strict')
+    log.info('guest session ended: private portfolio state erased')
+    return response
+
+
+def _erase_guest_private_data():
     root = DATA_DIR.resolve()
     private = tuple(dict.fromkeys(path.resolve() for path in (EXPORTS_DIR, MARKET_DIR, BUILD_DIR)))
     if any(path == root or not path.is_relative_to(root) for path in private):
         log.error('refusing unsafe guest cleanup outside %s: %s', root, private)
-        return JSONResponse(dict(ok=False, log='Guest storage configuration is unsafe; nothing was erased'), 500)
+        raise RuntimeError('Guest storage configuration is unsafe; nothing was erased')
     for path in private:
         shutil.rmtree(path, ignore_errors=True)
         path.mkdir(parents=True, exist_ok=True)
@@ -256,10 +316,6 @@ def end_guest_session():
         fn.cache_clear()
     with _freeze_lock:
         _freeze_cache.update(key=None, ctx=None, sweep=None)
-    response = JSONResponse(dict(ok=True, erased=True))
-    response.delete_cookie(GUEST_COOKIE, path='/', secure=GUEST_COOKIE_SECURE, httponly=True, samesite='strict')
-    log.info('guest session ended: private portfolio state erased')
-    return response
 
 
 # ------------------------------------------------------------------ simulate

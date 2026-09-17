@@ -115,13 +115,15 @@ ssh <host> 'cd portfolio-terminal && make import FILES="/tmp/activities-export-*
 ### Token-protected guest instance through an anonymous Cloudflare Quick Tunnel
 
 The guest overlay runs a second Compose project on `127.0.0.1:8789` without Basic Auth. A high-entropy token in the
-first URL exchanges for a 24-hour Secure, HttpOnly, SameSite cookie, then redirects to remove the token from the
-address bar. Treat the generated link as a password and rotate `GUEST_TOKEN` to revoke every session.
+first URL starts one active browser session, exchanges for a random 24-hour Secure, HttpOnly, SameSite cookie, then
+redirects to remove the token from the address bar. Another browser cannot use the URL token to enter that active
+workspace; end the first session before starting another. Treat the generated link as a password and rotate
+`GUEST_TOKEN` to revoke access.
 
 Guest financial data is deliberately non-persistent: exports, original uploads, ticker mappings, computed output,
 job logs and state live under the container's `/guest` tmpfs and disappear whenever that container stops. Only fetched
-public price, FX and calendar cache files are bind-mounted under `DATA_PATH/public-market`. This is one shared guest
-workspace, so deploy a separate instance/token for each mutually untrusted audience.
+public price, FX and calendar cache files are bind-mounted under `DATA_PATH/public-market`. The single workspace is
+owned by its active browser cookie, so deploy a separate instance/token if concurrent guest sessions are required.
 
 1. On the host, install `deploy/portfolio-terminal-guest-deploy.sh`, then run `init`.
 2. Run `deploy`, then use `link` to print the bearer URL. The script verifies the health endpoint, URL-token exchange,

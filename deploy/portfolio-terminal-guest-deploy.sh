@@ -92,6 +92,8 @@ verify() {
   done
   [ -n "$url" ] || die 'cloudflared did not publish a Quick Tunnel URL'
   [ "$code" = 200 ] || die "public tunnel health check returned $code after ${waited}s"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" -H 'X-Requested-With: portfolio' \
+      -X POST "http://127.0.0.1:$PORT/api/session/end")" = 200 ] || die 'verification guest session cleanup failed'
   ok "guest auth, app health, and Quick Tunnel verified at $url"
 }
 

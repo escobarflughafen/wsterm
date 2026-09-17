@@ -1199,7 +1199,7 @@ function updateFetchUI() {
   guest.hidden = !(ST && ST.guest);
   end.hidden = !(ST && ST.guest);
   guest.textContent = tr('GUEST · EPHEMERAL');
-  guest.title = tr('Uploaded portfolio data is erased when this guest container stops; only public market data persists.');
+  guest.title = tr('One browser owns this guest workspace. END SESSION erases its portfolio data; only public market data persists.');
   if (!ST) { b.disabled = true; b.textContent = tr('OFFLINE'); info.textContent = tr('server not reachable'); return; }
   const j = ST.job, cd = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
   const complete = Boolean(ST.exports.activities.rows);
