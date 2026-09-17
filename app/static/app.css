@@ -40,6 +40,8 @@ a { color: var(--amber); }
 .top .right { margin-left: auto; display: flex; gap: 14px; color: var(--muted); align-items: center; flex-wrap: wrap; }
 .fetchbtn { background: var(--amber); color: #000; font-weight: 700; padding: 1px 8px; }
 .fetchbtn:disabled { background: var(--hl); color: var(--muted); cursor: default; }
+#vimbtn { border: 1px solid var(--axis); padding: 0 6px; }
+#vimbtn[aria-pressed="true"] { border-color: var(--amber); background: var(--amber); color: #000; font-weight: 700; }
 .warn { color: var(--amber); }
 .cmd { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .cmd label { color: var(--amber); }

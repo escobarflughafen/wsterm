@@ -9,6 +9,7 @@ const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', 
   imp: { preview: null, busy: false, force: false, result: null },
   contribMonths: '12', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
+let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
 function saveSel() { try { localStorage.setItem('sim-exclude', JSON.stringify([...state.simSel])); } catch {} }
 let D = null;
@@ -720,6 +721,8 @@ const SCREEN = {
       ['NVDA <GO>', 'Open a symbol: price history with your buys ▲ and sells ▼'],
       ['T.TO <GO>', 'Use the Yahoo ticker to disambiguate (T = AT&T, T.TO = Telus)'],
       ['/  or start typing', 'Focus the command line'], ['LANG <GO>', 'Language: English / 中文'], ['FETCH <GO>', 'Download only market data that is due, then rebuild'], ['REBUILD <GO>', 'Recompute from exports and cached prices (no network)'], ['ESC', 'Back to previous screen'],
+      ['VIM <GO>  or  top-right VIM', 'Enable Vim keys: h/l screens · j/k scroll · gg/G top/bottom · Ctrl-d/Ctrl-u half-page · b back · i/: command'],
+      [':q  or  top-right EXIT VIM', 'Exit Vim mode'],
       ['DATA <GO>  or  0', 'Fetch history, request budget, per-ticker freshness'],
       ['IMPORT <GO>', 'Upload new Wealthsimple CSV exports (preview before commit)'],
       ['NEW EXPORTS', 'Drop them into WS/, then REBUILD (or FETCH if prices are due). Thresholds and buckets: pipeline/config.json']];
@@ -807,17 +810,20 @@ function scheduleSim() {
 
 // ---------- how to export from Wealthsimple ----------
 const EXPORT_STEPS = [
-  { img: 'guide-1-activity.png', title: 'Open Activity and start the export',
-    lines: ['In the Wealthsimple web app, click the clock icon in the left rail to open **Activity**.',
-            'Click **Download activities** above the transaction list.'] },
+  { img: 'Screenshot 2026-09-17 at 1.10.37 PM.png', title: 'Open Activity and start the export',
+    lines: ['In the Wealthsimple desktop web app, select the clock icon in the left sidebar to open **Activity**.',
+            'On the Activity page, select **Download activities** above the transaction list.'] },
   { img: 'guide-2-period.png', title: 'Choose the period',
-    lines: ['Set **Select period** to *Custom period*.',
+    lines: ['Set **Select period** to **Custom period**.',
             '**Start date**: a date before your first trade — 2000-01-01 is a safe catch-all. Full history is what lets the app compute cost basis; a partial range still imports and merges.',
             'Leave **End date** as today, then **Next**.'] },
   { img: 'guide-3-accounts.png', title: 'Pick the accounts and download',
     lines: ['Tick **All accounts** so every account lands in one file (TFSA, FHSA, RRSP, Non-registered, Crypto).',
             'Expand **Closed / Archived** if you once held accounts that are now closed — their trades still affect your history.',
-            '**Download CSV**, then drop the file above. Do the same for your holdings report so positions can be checked against the ledger.'] },
+            'Select **Download CSV** and wait for the download to finish.'] },
+  { img: 'Screenshot 2026-09-17 at 1.14.28 PM.png', title: 'Upload the downloaded CSV',
+    lines: ['Open your browser downloads and find the newest **activities-export-YYYY-MM-DD.csv** file.',
+            'Drag that file into **DROP CSV EXPORTS HERE** above. If you also have a **holdings-report-YYYY-MM-DD.csv**, upload both together so the app can check current positions against the activity ledger.'] },
 ];
 function exportGuide() {
   const bold = text => {
@@ -825,7 +831,7 @@ function exportGuide() {
     text.split(/\*\*(.+?)\*\*/g).forEach((part, i) => out.push(i % 2 ? h('b', { class: 'amb' }, part) : part));
     return out;
   };
-  return panel('HOW TO EXPORT FROM WEALTHSIMPLE', 'activities CSV in three steps · same file you drop above', null,
+  return panel('HOW TO EXPORT FROM WEALTHSIMPLE', 'activities CSV in four steps · upload it above', null,
     h('div', { class: 'guide' }, EXPORT_STEPS.map((step, i) => h('figure', {},
       h('figcaption', {}, h('span', { class: 'step' }, i + 1), h('span', { class: 'amb' }, step.title),
         h('ul', { class: 'plain' }, step.lines.map(l => h('li', {}, bold(l))))),
@@ -1041,6 +1047,28 @@ function go(screen, push = true) {
   if (location.hash !== hash) history.pushState(null, '', hash);
   if (screen === 'SIM') { if (state.simMode === 'FREEZE') ensureFreeze(); else if (!state.simResult) scheduleSim(); }
 }
+function goBack() {
+  if (!back.length) return;
+  const p = back.pop(); state.sym = p.sym; go(p.screen, false);
+}
+function stepScreen(delta) {
+  let i = SCREENS.findIndex(([key]) => key === state.screen);
+  if (i < 0) i = delta > 0 ? -1 : 0;
+  go(SCREENS[(i + delta + SCREENS.length) % SCREENS.length][0]);
+}
+function updateVimUI() {
+  const b = $('#vimbtn');
+  b.textContent = tr(vimMode ? 'EXIT VIM' : 'VIM');
+  b.title = tr(vimMode ? 'Exit Vim mode (:q)' : 'Enable Vim keyboard navigation');
+  b.setAttribute('aria-pressed', String(vimMode));
+  document.body.classList.toggle('vim-mode', vimMode);
+}
+function setVimMode(enabled) {
+  vimMode = Boolean(enabled);
+  try { localStorage.setItem('vim-mode', vimMode ? '1' : '0'); } catch {}
+  updateVimUI();
+  msg(vimMode ? 'VIM MODE · h/l screens · j/k scroll · gg/G edges · i/: command' : 'VIM MODE OFF');
+}
 function render() {
   resizeHooks = [];
   $('#fkeys').replaceChildren(...SCREENS.map(([k, n], i) => h('button', { 'aria-current': String(state.screen === k), onclick: () => go(k), title: n, raw: true }, h('span', { class: 'k' }, i < 9 ? i + 1 : i === 9 ? 0 : '·'), k)),
@@ -1056,6 +1084,8 @@ function render() {
 function runCommand(raw) {
   const c = raw.trim().toUpperCase().replace(/\s*<?GO>?$/, '');
   if (!c) return;
+  if (c === 'VIM') return setVimMode(true);
+  if (c === ':Q' || c === 'VIM OFF' || c === 'NOVIM') return setVimMode(false);
   const alias = { IMPORT: 'IMP', UPLOAD: 'IMP', PORTFOLIO: 'PORT', PNL: 'PNL', 'P&L': 'PNL', TRADES: 'TRD', ALLOC: 'ALOC', RULES: 'RULE', EVENTS: 'EVT', INCOME: 'INC', '?': 'HELP' };
   const k = alias[c] || c;
   if (SCREEN[k] && k !== 'SYM') { msg(''); return go(k); }
@@ -1157,17 +1187,32 @@ $('#cmdform').addEventListener('submit', e => { e.preventDefault(); const i = $(
 $('#fetch').addEventListener('click', () => startJob('fetch'));
 $('#rebuild').addEventListener('click', () => startJob('rebuild'));
 $('#fetchinfo').addEventListener('click', () => go('DATA'));
+$('#vimbtn').addEventListener('click', () => setVimMode(!vimMode));
 setInterval(() => { if (cooldownUntil > Date.now()) updateFetchUI(); }, 1000);
 setInterval(() => { if (!ST || !ST.job.running) pollStatus().then(() => state.screen === 'DATA' && rerenderKeepScroll()); }, 60000);
+let vimGAt = 0;
 document.addEventListener('keydown', e => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
-  if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else if (back.length) { const p = back.pop(); state.sym = p.sym; go(p.screen, false); } return; }
-  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else goBack(); return; }
+  if (typing || e.metaKey || e.altKey) return;
+  if (vimMode) {
+    const halfPage = Math.max(160, Math.round(innerHeight * .5));
+    if (e.ctrlKey && (e.key === 'd' || e.key === 'u')) { e.preventDefault(); scrollBy({ top: e.key === 'd' ? halfPage : -halfPage, behavior: 'smooth' }); return; }
+    if (e.ctrlKey) return;
+    if (e.key === 'j' || e.key === 'k') { e.preventDefault(); scrollBy({ top: e.key === 'j' ? 80 : -80, behavior: 'smooth' }); return; }
+    if (e.key === 'h' || e.key === 'l') { e.preventDefault(); stepScreen(e.key === 'h' ? -1 : 1); return; }
+    if (e.key === 'b') { e.preventDefault(); goBack(); return; }
+    if (e.key === 'G') { e.preventDefault(); scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }); vimGAt = 0; return; }
+    if (e.key === 'g') { e.preventDefault(); const now = Date.now(); if (now - vimGAt < 700) { scrollTo({ top: 0, behavior: 'smooth' }); vimGAt = 0; } else vimGAt = now; return; }
+    vimGAt = 0;
+    if (e.key === ':' || e.key === '/' || e.key === 'i') { e.preventDefault(); const input = $('#cmd'); input.value = e.key === ':' ? ':' : ''; input.focus(); input.setSelectionRange(input.value.length, input.value.length); return; }
+  }
+  if (e.ctrlKey) return;
   if (e.key === '/') { e.preventDefault(); $('#cmd').focus(); return; }
   if (e.key === '?') return go('HELP');
   if (e.key === '0') return go('DATA');
   const n = +e.key; if (n >= 1 && n <= 9) return go(SCREENS[n - 1][0]);
-  if (/^[a-z]$/i.test(e.key)) { $('#cmd').focus(); }   // start typing a command anywhere
+  if (!vimMode && /^[a-z]$/i.test(e.key)) { $('#cmd').focus(); }   // start typing a command anywhere
 });
 setInterval(() => { $('#clock').textContent = new Date().toLocaleString('en-CA', { hour12: false }).replace(',', ''); }, 1000);
 pollStatus();
@@ -1181,6 +1226,7 @@ function applyStaticText() {
   $('#fetchinfo').title = tr('Open DATA screen');
   $('#langbtn').textContent = LANG === 'zh' ? 'EN' : '中文';
   $('#langbtn').title = tr('Language');
+  updateVimUI();
 }
 function switchLang(lang) {
   setLang(lang || (LANG === 'zh' ? 'en' : 'zh'));

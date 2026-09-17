@@ -3,7 +3,8 @@
 A self-hosted, Bloomberg-style terminal for a Wealthsimple portfolio: performance vs. benchmarks, realized P&L,
 trade hindsight, allocation rules, what-if simulation (remove trades, or freeze all trading after a trade/day with
 short- vs long-term comparisons and a hindsight map), and CSV import. English and Simplified Chinese UI
-(`LANG <GO>`, the 中文/EN button, or `?lang=zh`). Single container, no database, all state in one
+(`LANG <GO>`, the 中文/EN button, or `?lang=zh`) plus an optional persistent Vim navigation mode (`VIM <GO>` or the
+top-right toggle; `:q` exits). Single container, no database, all state in one
 data directory.
 
 ```
@@ -45,7 +46,7 @@ The app starts empty and says so. Three ways to fill it:
 
 | Source | How |
 |---|---|
-| Your own exports | Open the app → **IMP** screen → drop `activities-export-*.csv` and `holdings-report-*.csv` → preview → commit. Prices for new symbols are fetched automatically. The same screen carries an illustrated three-step guide to producing those files in Wealthsimple (`app/static/img/guide-*.png`). |
+| Your own exports | Open the app → **IMP** screen → drop `activities-export-*.csv` and `holdings-report-*.csv` → preview → commit. Prices for new symbols are fetched automatically. The same screen carries an illustrated four-step guide to exporting and uploading the activities CSV from Wealthsimple (`app/static/img/`). |
 | A copy of another instance | `rsync -a <other>/data/ ./data/` (or `~/Maintenances/portfolio-terminal-deploy.sh seed-dev` on the host) |
 | Nothing real | `tests/fixtures/*.csv` are small synthetic exports; import them the same way. |
 
