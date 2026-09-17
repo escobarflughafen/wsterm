@@ -43,6 +43,13 @@ scp activities-export-*.csv holdings-report-*.csv server:/tmp/
 ssh server 'cd portfolio-terminal && make import FILES="/tmp/activities-export-2026-09-16.csv /tmp/holdings-report-2026-09-16.csv"'
 ```
 
+### Host deployment (10.10.20.3)
+
+Prod (`/srv/portfolio-terminal`, :8787, branch `main`) and dev (`~/Workspaces/portfolio-terminal`, :8788, branch `dev`)
+are managed by `deploy/portfolio-terminal-deploy.sh`, installed on the host as `~/Maintenances/portfolio-terminal-deploy.sh`
+(`init`, `deploy` with verification and automatic rollback, `backup`, `seed-dev`, `promote`, `survey`, `self-update`).
+The full runbook lives on the host at `~/Deployments/portfolio-terminal-20260917.md`.
+
 ### TLS / reverse proxy
 
 The app speaks plain HTTP and expects a proxy in front. Caddy example (automatic certificates, LAN or Tailscale name):
