@@ -51,8 +51,20 @@ def main():
         bench[b] = dict(value=v, twr=idx)
     days = cal.days
 
+    sleeve = engine.invested_sleeve(acts, cal, base)
+    sleeve_bench = {}
+    for b in CFG['benchmarks']:
+        adj = cal.adj_cad(b)
+        flow = sleeve['capital'].diff().fillna(sleeve['capital'].iloc[0])
+        sleeve_bench[b] = dict(value=(flow / adj).cumsum() * adj, twr=adj / adj.iloc[0])
+
     series = dict(
         dates=[d.strftime('%Y-%m-%d') for d in days],
+        invested=dict(
+            value=[r2(v) for v in sleeve['value']], capital=[r2(v) for v in sleeve['capital']],
+            twr=[round(float(v), 5) for v in sleeve['twr']],
+            bench={b: dict(value=[r2(v) for v in x['value']], twr=[round(float(v), 5) for v in x['twr']])
+                   for b, x in sleeve_bench.items()}),
         total=[r2(v) for v in total], contrib=[r2(v) for v in contrib],
         twr=[round(float(v), 5) for v in twr],
         accounts={a: [r2(v) for v in value[a]] for a in accounts},

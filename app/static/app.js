@@ -5,7 +5,7 @@ const SCREENS = [
 ];
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
-const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
+const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
   simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
@@ -254,6 +254,11 @@ const SCREEN = {
 
   PERF() {
     const sr = D.series, i0 = rangeStart(sr.dates, state.range);
+    // ALL MONEY: every deposit, cash included. INVESTED: cash and cash ETFs excluded on both sides, so the
+    // benchmark only gets money when you actually bought a risk asset.
+    const invested = state.basis === 'INVESTED' && sr.invested;
+    const P = invested ? { total: sr.invested.value, contrib: sr.invested.capital, twr: sr.invested.twr, bench: sr.invested.bench }
+                       : { total: sr.total, contrib: sr.contrib, twr: sr.twr, bench: sr.bench };
     const dates = sr.dates.slice(i0);
     const acct = state.acct;
     let series, yfmt, statsEl;
@@ -265,17 +270,17 @@ const SCREEN = {
       series.push(...[]);
     } else if (state.mode === 'VALUE') {
       series = [
-        { name: 'PORTFOLIO', short: 'YOU', color: 'var(--s1)', values: sr.total.slice(i0) },
-        ...Object.entries(sr.bench).map(([b, x]) => ({ name: `ALL DEPOSITS IN ${b.replace('.TO', '')}`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: x.value.slice(i0) })),
-        { name: 'NET DEPOSITED', short: 'DEPOSITED', color: 'var(--ref)', width: 1.5, values: sr.contrib.slice(i0) },
+        { name: invested ? 'INVESTED (NO CASH)' : 'PORTFOLIO', short: 'YOU', color: 'var(--s1)', values: P.total.slice(i0) },
+        ...Object.entries(P.bench).map(([b, x]) => ({ name: invested ? `SAME MONEY IN ${b.replace('.TO', '')}` : `ALL DEPOSITS IN ${b.replace('.TO', '')}`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: x.value.slice(i0) })),
+        { name: invested ? 'CAPITAL DEPLOYED' : 'NET DEPOSITED', short: invested ? 'CAPITAL' : 'DEPOSITED', color: 'var(--ref)', width: 1.5, values: P.contrib.slice(i0) },
       ];
       yfmt = v => v >= 1000 ? '$' + nf0.format(Math.round(v / 1000)) + 'K' : money(v);
       yfmt = ((f) => (v, full) => full ? money(v) : f(v))(yfmt);
     } else {
       const rebase = arr => { const a = arr.slice(i0), b = a[0]; return a.map(v => v / b - 1); };
       series = [
-        { name: 'PORTFOLIO (TIME-WEIGHTED)', short: 'YOU', color: 'var(--s1)', values: rebase(sr.twr) },
-        ...Object.entries(sr.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} TOTAL RETURN (CAD)`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: rebase(x.twr) })),
+        { name: invested ? 'INVESTED MONEY (TIME-WEIGHTED)' : 'PORTFOLIO (TIME-WEIGHTED)', short: 'YOU', color: 'var(--s1)', values: rebase(P.twr) },
+        ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} TOTAL RETURN (CAD)`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: rebase(x.twr) })),
       ];
       yfmt = (v, full) => (v * 100).toFixed(full ? 2 : 0) + '%';
     }
@@ -285,7 +290,7 @@ const SCREEN = {
       if (state.mode === 'VALUE') {
         const dep = series[series.length - 1].values, gainYou = last(you) - you[0] - (last(dep) - dep[0]);
         statsEl = h('div', { class: 'stats' },
-          stat('YOUR GAIN IN RANGE', signed(gainYou), 'value change minus deposits'),
+          stat('YOUR GAIN IN RANGE', signed(gainYou), invested ? 'value change minus capital deployed' : 'value change minus deposits'),
           ...series.slice(1, -1).map(x => { const gb = last(x.values) - x.values[0] - (last(dep) - dep[0]); return stat(`${x.short} INSTEAD`, signed(gb), h('span', {}, 'you vs it: ', signed(gainYou - gb))); }));
       } else {
         statsEl = h('div', { class: 'stats' }, ...series.map(x => stat(x.short === 'YOU' ? 'YOUR RETURN' : x.short, signedPct(last(x.values)), x.short === 'YOU' ? 'time-weighted, flows removed' : h('span', {}, 'you vs it: ', signedPct(last(you) - last(x.values))))));
@@ -297,11 +302,16 @@ const SCREEN = {
       h('span', { style: 'width:10px' }),
       ...(acct === 'ALL' ? seg(['VALUE', 'RETURN'], state.mode, m => { state.mode = m; render(); }) : []),
       h('span', { style: 'width:10px' }),
+      ...(acct === 'ALL' && sr.invested ? seg(['INVESTED', 'ALL MONEY'], state.basis, b => { state.basis = b; render(); }) : []),
+      h('span', { style: 'width:10px' }),
       ...seg(['1M', '3M', '6M', 'YTD', '1Y', 'ALL'], state.range, r => { state.range = r; render(); }),
     ];
-    const note = acct === 'ALL' && state.mode === 'VALUE'
-      ? 'Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested).'
-      : acct === 'ALL' ? 'Returns rebased to 0% at the range start. Early months are noisy because balances were small.' : 'Account value in CAD, including cash.';
+    const note = acct !== 'ALL' ? 'Account value in CAD, including cash.'
+      : invested
+        ? 'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality. This compares your picks with XEQT on equal terms.'
+        : state.mode === 'VALUE'
+          ? 'Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested) — including money you parked in cash ETFs, which is why they can lead. Switch to INVESTED for a like-for-like comparison.'
+          : 'Returns rebased to 0% at the range start. Early months are noisy because balances were small.';
     return [panel('PERFORMANCE', `${dates[0]} → ${dates[dates.length - 1]}`, ctl, statsEl,
       h('div', { class: 'body' }, lineChart({ dates, series, yfmt, height: 340 })), h('div', { class: 'body mut' }, note))];
   },
@@ -479,7 +489,7 @@ const SCREEN = {
       stat('DIFFERENCE', R ? signed(R.summary.simulated - R.summary.actual) : '—', R ? signedPct((R.summary.simulated - R.summary.actual) / R.summary.actual, 2) : null),
       stat('REALIZED P&L', R ? h('span', {}, money(R.summary.realized_actual), h('span', { class: 'mut' }, ' → '), money(R.summary.realized_sim)) : '—', R && R.summary.clipped ? `${R.summary.clipped} later sells/transfers shrunk` : 'CAD'));
     const ctl = [
-      ...seg(['CASH', 'XEQT', 'VOO'], state.simRedirect, m => { state.simRedirect = m; state.simResult = null; render(); scheduleSim(); }),
+      ...seg(['CASH', 'CASH ETF', 'XEQT', 'VOO'], state.simRedirect, m => { state.simRedirect = m; state.simResult = null; render(); scheduleSim(); }),
     ];
     const pickCtl = [
       h('select', { 'aria-label': 'Account', onchange: e => { state.simAcct = e.target.value; render(); } },
@@ -725,7 +735,7 @@ function scheduleSim() {
   simTimer = setTimeout(async () => {
     const seq = ++simSeq;
     try {
-      const redirect = { XEQT: 'XEQT.TO', VOO: 'VOO' }[state.simRedirect] || null;
+      const redirect = { XEQT: 'XEQT.TO', VOO: 'VOO', 'CASH ETF': 'CCAD.TO' }[state.simRedirect] || null;
       const { data: j } = await api('/api/simulate', { method: 'POST', json: { exclude: [...state.simSel], redirect } });
       if (!j.ok) throw new Error(j.log);
       if (seq !== simSeq) return;
@@ -762,7 +772,7 @@ async function commitImport() {
 }
 
 // ---------- freeze (stop trading) simulation ----------
-const FRZ_DEPOSITS = { CASH: 'cash', XEQT: 'XEQT.TO', VOO: 'VOO', NONE: 'none' };
+const FRZ_DEPOSITS = { CASH: 'cash', 'CASH ETF': 'CCAD.TO', XEQT: 'XEQT.TO', VOO: 'VOO', NONE: 'none' };
 let frzTimer, frzSeq = 0;
 function ensureFreeze() {
   const F = state.frz;
@@ -797,7 +807,7 @@ function freezeView() {
   const F = state.frz, R = F.result, S = F.sweep;
   const pp = v => v == null ? '—' : `${(v * 100).toFixed(2)}pp`;
   const signedPP = v => signed(v, x => `${(x * 100).toFixed(2)}pp`, 0.00005);
-  const depNote = { CASH: 'deposits after the freeze arrive and sit as cash', XEQT: 'deposits after the freeze buy XEQT the same day', VOO: 'deposits after the freeze buy VOO the same day', NONE: 'deposits after the freeze are ignored: compare returns only' }[F.deposits];
+  const depNote = { CASH: 'deposits after the freeze arrive and sit as cash', 'CASH ETF': 'deposits after the freeze buy CCAD, the cash ETF you actually park money in', XEQT: 'deposits after the freeze buy XEQT the same day', VOO: 'deposits after the freeze buy VOO the same day', NONE: 'deposits after the freeze are ignored: compare returns only' }[F.deposits];
   const first = D.series.dates[0], last = D.price_date;
   const dateInput = h('input', { type: 'date', min: first, max: last, value: F.date || '', 'aria-label': 'Freeze date', class: 'dateinput',
     onchange: e => { if (e.target.value) freezeAtDate(e.target.value); } });

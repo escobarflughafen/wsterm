@@ -7,7 +7,8 @@ Frozen portfolio = everything held at the freeze point, left untouched:
   - open options are closed at cost on the freeze day (expired contracts have no price history)
   - no trades, FX conversions or share transfers after the freeze; subscription fees still apply
 Money deposited after the freeze is handled per `deposits`:
-  'cash'  arrives and sits idle      'XEQT.TO' / 'VOO'  bought the same day      'none'  ignored (compare returns only)
+  'cash'    sits idle          'CCAD.TO'  buys the cash ETF you actually park money in (earns its yield)
+  'XEQT.TO' / 'VOO'  bought the same day      'none'  ignored (compare returns only)
 
 Returns are time-weighted, so deposits never inflate them; value gains subtract deposits.
 """
@@ -20,7 +21,7 @@ import engine
 from engine import Calendar, is_option, position_key, replay, twr, trade_id
 
 HORIZONS = [('1W', 7), ('1M', 30), ('3M', 91), ('6M', 182), ('1Y', 365)]
-DEPOSIT_MODES = ('cash', 'none', *engine.CFG['benchmarks'])
+DEPOSIT_MODES = ('cash', 'none', engine.CASH_ETF, *engine.CFG['benchmarks'])
 
 
 class Context:
@@ -46,6 +47,12 @@ class Context:
         adj = pd.DataFrame({t: cal.adj_cad(t) for t in tickers})
         self.adj = adj.where(adj > 0)
         self.bench = {b: cal.adj_cad(b) for b in engine.CFG['benchmarks']}
+        self.invest_into = dict(self.bench)
+        if engine.CASH_ETF not in self.invest_into:
+            try:  # optional: only offered when that ETF has price history
+                self.invest_into[engine.CASH_ETF] = cal.adj_cad(engine.CASH_ETF)
+            except FileNotFoundError:
+                pass
 
     # ------------------------------------------------------------ freeze point
     def snapshot(self, trade=None, date=None):
@@ -100,8 +107,8 @@ class Context:
         if deposits == 'cash':
             value += post
             contrib_after = self.contrib.iloc[fi] + post
-        elif deposits in self.bench:
-            px = self.bench[deposits]
+        elif deposits in self.invest_into:
+            px = self.invest_into[deposits]
             units = (post.diff().fillna(0.0).where(after, 0.0) / px).cumsum()
             value += units * px
             contrib_after = self.contrib.iloc[fi] + post

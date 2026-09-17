@@ -43,6 +43,13 @@ const ZH = {
   'TOTAL VALUE (CAD)': '总市值（加元）', 'DAY CHANGE': '当日变动', 'Yahoo last two closes': 'Yahoo 最近两个收盘价', 'all accounts, all time': '全部账户，全部时间',
   'TOTAL GAIN': '总收益', 'avg-cost, all time': '平均成本法，全部时间', 'open positions': '当前持仓', 'click a row for its history': '点击行查看历史',
 
+  'INVESTED': '已投资', 'ALL MONEY': '全部资金', 'INVESTED (NO CASH)': '已投资（不含现金）', 'CAPITAL DEPLOYED': '投入资金',
+  'INVESTED MONEY (TIME-WEIGHTED)': '已投资资金（时间加权）', 'CASH ETF': '现金ETF',
+  'value change minus capital deployed': '市值变化减去投入资金',
+  'deposits after the freeze buy CCAD, the cash ETF you actually park money in': '冻结后的存款买入 CCAD（你实际用来存放现金的现金 ETF）',
+  'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality. This compares your picks with XEQT on equal terms.': '双方均剔除现金及现金 ETF（CCAD、TCSH、CBIL）：只有在你真正买入风险资产时基准才获得资金，股息也像现实中一样流出。这样才能公平比较你的选股与 XEQT。',
+  'Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested) — including money you parked in cash ETFs, which is why they can lead. Switch to INVESTED for a like-for-like comparison.': '基准线假设每笔存取款当天买卖该 ETF（股息再投资）——包括你存放在现金 ETF 中的资金，因此基准可能领先。切换到"已投资"可进行同口径比较。',
+
   // PERF
   'YOUR GAIN IN RANGE': '区间内你的收益', 'value change minus deposits': '市值变化减去存入', 'YOUR RETURN': '你的收益率',
   'time-weighted, flows removed': '时间加权，已剔除资金进出', 'you vs it: ': '你 vs 它：', 'PORTFOLIO (TIME-WEIGHTED)': '投资组合（时间加权）',
@@ -182,7 +189,7 @@ const ZH_PATTERNS = [
   [/^ · (\d+) ERR$/, ' · $1 个错误'], [/^FETCH · (\d+) DUE$/, '抓取 · $1 个待更新'], [/^FETCH (\d+)s$/, '抓取 $1秒'],
   [/^FETCHING (\d+)\/(.+)$/, '抓取中 $1/$2'], [/^FETCHING… (\d+)s$/, '抓取中… $1秒'],
   [/^Preview ready: \+(\d+) rows$/, '预览就绪：新增 $1 行'], [/^REALIZED (\d{4})$/, '$1 年已实现'],
-  [/^([A-Z]+) INSTEAD$/, '改买 $1'], [/^ALL DEPOSITS IN (.+)$/, '全部存款买入 $1'], [/^(.+) TOTAL RETURN \(CAD\)$/, '$1 总收益率（加元）'],
+  [/^([A-Z]+) INSTEAD$/, '改买 $1'], [/^ALL DEPOSITS IN (.+)$/, '全部存款买入 $1'], [/^SAME MONEY IN (.+)$/, '同样资金买入 $1'], [/^(.+) TOTAL RETURN \(CAD\)$/, '$1 总收益率（加元）'],
   [/^([A-Z0-9.\-]+) <EQUITY>$/, '$1 <股票>'], [/^SIMULATE WITHOUT (.+) →$/, '模拟去掉 $1 →'], [/^Remove (BUY|SELL) (.+)$/, (m, s, r) => `移除 ${tr(s)} ${r}`],
   [/^(.+): also (.+)$/, '$1：另有 $2'], [/^UNKNOWN: (.+) — type HELP$/, '未知命令：$1 — 输入 HELP'],
   [/^NO PRICE HISTORY FOR (.+)$/, '$1 没有价格历史'], [/^NO PRICE DATA FOR (.+)$/, '没有 $1 的价格数据：'], [/^LOADING (.+)…$/, '正在加载 $1…'],

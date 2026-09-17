@@ -9,6 +9,7 @@ from prices import history, ticker_map, fx_usdcad
 
 CFG = json.load(open(CONFIG_PATH))
 CAD_SUFFIXES = ('.TO', '.NE', '-CAD')
+CASH_ETF = CFG.get('cash_etf', 'CCAD.TO')
 
 
 def is_option(symbol):
@@ -118,6 +119,36 @@ def replay(acts, cal):
                 qty=qty, cash_by_cur=cash_by_cur, option_value=option_value)
 
 
+def invested_sleeve(acts, cal, base):
+    """Everything except cash and cash ETFs: the money you actually put at risk.
+
+    Flows are the trades themselves (a buy moves money in, a sell moves it out) and dividends, which leave the sleeve
+    as cash. Comparing this against a benchmark fed by the same flows answers "did my picks beat XEQT?" without the
+    portfolio's cash position deciding the answer.
+    """
+    cash_symbols = set(CFG['categories'].get('cash', []))
+    cash_tickers = {t for (sym, cur), t in cal.tmap.items() if t and sym in cash_symbols}
+    value = pd.Series(0.0, index=cal.days)
+    for ticker, q in base['qty'].items():
+        if ticker not in cash_tickers:
+            value += q * cal.price_cad(ticker)
+    value += base['option_value']
+
+    flows = []
+    for a in acts:
+        t, cur, sym = a['activity_type'], a['currency'], a['symbol']
+        net = float(a['net_cash_amount'] or 0)
+        d = pd.Timestamp(a['effective_date'])
+        if t == 'Trade' and sym not in cash_symbols:
+            flows.append((d, cal.to_cad(-net, cur, d)))              # buy: money in, sell: money out
+        elif t == 'InternalSecurityTransfer' and sym not in cash_symbols:
+            flows.append((d, cal.to_cad(net, cur, d)))               # shares entering/leaving the tracked accounts
+        elif t == 'Dividend' and sym and sym not in cash_symbols:
+            flows.append((d, cal.to_cad(-net, cur, d)))              # paid out to cash, so it leaves the sleeve
+    capital = cal.cumulative(flows)
+    return dict(value=value, capital=capital, twr=twr(value, capital))
+
+
 def twr(total, contrib):
     daily_flow = contrib.diff().fillna(contrib.iloc[0])
     prev = total.shift(1)
@@ -174,6 +205,7 @@ def redirect_cash(actual, sim, ticker, cal, acts_actual, acts_sim):
 
 
 def simulate(acts, exclude, redirect=None):
+    """redirect: ticker the freed cash buys instead of sitting idle (a benchmark, or the cash ETF)."""
     tmap = ticker_map()
     cal = Calendar(acts[0]['effective_date'])
     base = replay(acts, cal)

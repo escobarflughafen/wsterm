@@ -16,5 +16,6 @@
     "max_tfsa_trades_per_month": 20,
     "averaging_down_lookback_days": 90
   },
-  "benchmarks": ["XEQT.TO", "VOO"]
+  "benchmarks": ["XEQT.TO", "VOO"],
+  "cash_etf": "CCAD.TO"
 }

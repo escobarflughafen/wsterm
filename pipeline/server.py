@@ -204,7 +204,7 @@ class Simulate(BaseModel):
 def simulate(body: Simulate):
     if not store.has_data():
         raise HTTPException(409, 'No data')
-    redirect = body.redirect if body.redirect in engine.CFG['benchmarks'] else None
+    redirect = body.redirect if body.redirect in (*engine.CFG['benchmarks'], engine.CASH_ETF) else None
     ids = [i for i in body.exclude if re.fullmatch(r'[0-9a-f]{12}', i)]
     return dict(ok=True, **engine.simulate(load_activities(), ids, redirect))
 
