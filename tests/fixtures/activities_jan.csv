@@ -1,0 +1,5 @@
+effective_date,effective_time,settlement_date,account_id,account_type,activity_type,activity_sub_type,description,direction,symbol,underlying symbol,name,currency,quantity,unit_price,commission,net_cash_amount
+2026-01-05,09:30:00,,TEST1CAD,TFSA,MoneyMovement,EFT,Deposit,,,,,USD,3000,,,3000
+2026-01-06,10:00:00,2026-01-07,TEST1CAD,TFSA,Trade,BUY,VOO - Vanguard S&P 500 ETF: Bought 2.0000 shares,LONG,VOO,VOO,Vanguard S&P 500 ETF,USD,2,500,0,-1000
+2026-01-06,10:00:00,2026-01-07,TEST1CAD,TFSA,Trade,BUY,VOO - Vanguard S&P 500 ETF: Bought 2.0000 shares,LONG,VOO,VOO,Vanguard S&P 500 ETF,USD,2,500,0,-1000
+2026-01-20,11:00:00,,TEST1CAD,TFSA,Dividend,-,VOO - Vanguard S&P 500 ETF: Cash dividend distribution,,VOO,VOO,Vanguard S&P 500 ETF,USD,5.5,,,5.5

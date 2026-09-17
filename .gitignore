@@ -1,0 +1,14 @@
+# personal financial data and secrets never go into git
+var/
+data/
+backups/
+.env
+*.csv
+!tests/fixtures/*.csv
+# tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.pytest_cache/

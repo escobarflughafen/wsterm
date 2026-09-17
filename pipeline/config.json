@@ -1,0 +1,20 @@
+{
+  "targets": {
+    "core": 0.85,
+    "stocks": 0.12,
+    "speculative": 0.03
+  },
+  "categories": {
+    "core": ["VOO", "QQQ", "VFV", "XEQT", "XQQ", "QQQI", "ALLW"],
+    "cash": ["CCAD", "TCSH", "CBIL"],
+    "speculative": ["NVDU", "TSMX", "MUU", "USD", "SOXS", "DRAM", "KWEB", "URA", "JETS", "GOU", "IBIT"]
+  },
+  "rules": {
+    "max_single_stock_pct": 0.04,
+    "max_speculative_pct_of_invested": 0.03,
+    "review_drawdown_pct": -0.15,
+    "max_tfsa_trades_per_month": 20,
+    "averaging_down_lookback_days": 90
+  },
+  "benchmarks": ["XEQT.TO", "VOO"]
+}

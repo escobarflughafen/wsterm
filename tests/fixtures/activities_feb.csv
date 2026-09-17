@@ -1,0 +1,3 @@
+effective_date,effective_time,settlement_date,account_id,account_type,activity_type,activity_sub_type,description,direction,symbol,underlying symbol,name,currency,quantity,unit_price,commission,net_cash_amount
+2026-01-20,11:00:00,,TEST1CAD,TFSA,Dividend,-,VOO - Vanguard S&P 500 ETF: Cash dividend distribution,,VOO,VOO,Vanguard S&P 500 ETF,USD,5.5,,,5.5
+2026-02-10,10:00:00,2026-02-11,TEST1CAD,TFSA,Trade,SELL,VOO - Vanguard S&P 500 ETF: Sold 3.0000 shares,LONG,VOO,VOO,Vanguard S&P 500 ETF,USD,-3,600,0,1800

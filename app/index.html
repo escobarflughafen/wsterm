@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Terminal</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23000'/><text x='2' y='13' font-size='13' font-family='monospace' fill='%23f5a300'>&gt;</text></svg>">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">WS&lt;PORT&gt;</span>
+  <div class="tick" id="tick"></div>
+  <div class="right"><span id="clock"></span><button id="fetchinfo" class="mut" title="Open DATA screen"></button><button id="langbtn" class="amb" type="button"></button><button id="rebuild" class="amb" title="Recompute from exports and cached prices, no network (REBUILD &lt;GO&gt;)">REBUILD</button><button id="fetch" class="fetchbtn" title="Fetch due market data, then rebuild (FETCH &lt;GO&gt;)">FETCH</button></div>
+</header>
+<form class="cmd" id="cmdform" autocomplete="off">
+  <label for="cmd">&gt;</label>
+  <input id="cmd" placeholder="PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · SIM · DATA · FETCH · or a ticker (NVDA, T.TO) · HELP" spellcheck="false">
+  <span class="msg" id="msg"></span>
+  <button class="go" type="submit">GO</button>
+</form>
+<nav class="fkeys" id="fkeys"></nav>
+<main id="main"><div class="skeleton">LOADING…</div></main>
+
+<script src="/static/i18n.js" defer></script>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

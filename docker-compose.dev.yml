@@ -1,0 +1,12 @@
+# Dev overlay: live code, auto-reload, no scheduled fetches.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  portfolio:
+    image: portfolio-terminal:dev
+    environment:
+      FETCH_TIMES: ""
+    volumes:
+      - ./pipeline:/app/pipeline:ro
+      - ./app:/app/app:ro
+    command: ["uvicorn", "--app-dir", "pipeline", "server:app", "--host", "0.0.0.0", "--port", "8787", "--reload",
+              "--reload-dir", "/app/pipeline", "--reload-dir", "/app/app"]
