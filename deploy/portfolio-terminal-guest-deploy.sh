@@ -17,6 +17,7 @@ APP=$ROOT/app
 DATA=$ROOT/data
 PORT=${PT_GUEST_PORT:-8789}
 BRANCH=${PT_GUEST_BRANCH:-main}
+PROJECT=${PT_GUEST_PROJECT:-portfolio-terminal-guest}
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.guest.yml)
 
 ok()   { echo "[✓] $*"; }
@@ -24,11 +25,14 @@ warn() { echo "[~] $*"; }
 die()  { echo "[!] $*" >&2; exit 1; }
 env_get() { awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); value=$0} END {print value}' "$APP/.env" 2>/dev/null; }
 compose() { (cd "$APP" && "${COMPOSE[@]}" "$@"); }
+project_name() { local p; p=$(env_get COMPOSE_PROJECT_NAME); printf '%s\n' "${p:-$PROJECT}"; }
+app_container() { project_name; }
+tunnel_container() { printf '%s-tunnel\n' "$(project_name)"; }
 public_url() {
   local configured
   configured=$(env_get GUEST_PUBLIC_URL)
   if [ -n "$configured" ]; then printf '%s\n' "${configured%/}"; return; fi
-  docker logs portfolio-terminal-guest-tunnel 2>&1 \
+  docker logs "$(tunnel_container)" 2>&1 \
     | grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' | tail -1
 }
 
@@ -39,7 +43,7 @@ cmd_init() {
   if [ ! -d "$APP/.git" ]; then git clone -q -b "$ref" "$REPO" "$APP"; fi
   if [ ! -f "$APP/.env" ]; then
     local access; access=$(openssl rand -hex 32)
-    sed -e 's|^COMPOSE_PROJECT_NAME=.*|COMPOSE_PROJECT_NAME=portfolio-terminal-guest|' \
+    sed -e "s|^COMPOSE_PROJECT_NAME=.*|COMPOSE_PROJECT_NAME=$PROJECT|" \
         -e "s|^PORT=.*|PORT=$PORT|" \
         -e 's|^BIND_ADDR=.*|BIND_ADDR=127.0.0.1|' \
         -e "s|^DATA_PATH=.*|DATA_PATH=$DATA|" \
@@ -61,7 +65,7 @@ cmd_init() {
 wait_healthy() {
   local waited=0 state=''
   while [ "$waited" -lt 120 ]; do
-    state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' portfolio-terminal-guest 2>/dev/null || echo missing)
+    state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$(app_container)" 2>/dev/null || echo missing)
     [ "$state" = healthy ] && return 0
     [ "$state" = unhealthy ] && break
     sleep 3; waited=$((waited + 3))
@@ -80,7 +84,7 @@ verify() {
   rm -f "$headers"
   [ -n "$cookie" ] || die 'token exchange did not set a session cookie'
   [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "http://127.0.0.1:$PORT/")" = 200 ] || die 'guest session cookie failed'
-  [ "$(docker inspect -f '{{.State.Status}}' portfolio-terminal-guest-tunnel 2>/dev/null)" = running ] || die 'cloudflared is not running'
+  [ "$(docker inspect -f '{{.State.Status}}' "$(tunnel_container)" 2>/dev/null)" = running ] || die 'cloudflared is not running'
   local url code=000 waited=0
   while [ "$waited" -lt 90 ]; do
     url=$(public_url || true)

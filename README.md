@@ -129,6 +129,9 @@ owned by its active browser cookie, so deploy a separate instance/token if concu
 2. Run `deploy`, then use `link` to print the bearer URL. The script verifies the health endpoint, URL-token exchange,
    session cookie and Tunnel container.
 
+For multiple isolated guests, give each invocation a distinct `PT_GUEST_ROOT`, `PT_GUEST_PROJECT`, and
+`PT_GUEST_PORT`. Each instance receives its own token, tmpfs workspace, public cache, containers, and Quick Tunnel.
+
 The sidecar uses Cloudflare's anonymous Quick Tunnel flow and receives a random `trycloudflare.com` hostname on each
 recreation. Quick Tunnels are intended for testing, have a 200-concurrent-request limit, and do not provide a stable
 hostname. The app disables Uvicorn access logs in guest mode so the initial query token is not written to app logs.
