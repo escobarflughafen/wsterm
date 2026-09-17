@@ -57,6 +57,7 @@ const ZH = {
   'Returns rebased to 0% at the range start. Early months are noisy because balances were small.': '收益率以区间起点为 0%。早期余额较小，波动较大。',
   'Account value in CAD, including cash.': '账户市值（加元），含现金。',
 
+  'rate: ': '收益率：', 'worth ': '折合 ', ' in range': '（区间内）', 'you vs it: ': '你 vs 它：',
   'BALANCE CHANGE': '余额变化', 'MONEY ADDED': '新增资金', 'INVESTMENT GAIN': '投资收益',
   'money added + investment gain': '新增资金 + 投资收益', 'deposits and transfers in range': '区间内的存入与转入',
   'balance change minus money added': '余额变化减去新增资金', 'value change minus money added': '市值变化减去新增资金',

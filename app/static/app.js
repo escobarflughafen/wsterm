@@ -58,6 +58,7 @@ function signed(v, fmt = money, eps = 0.005) {  // gain/loss never relies on col
   return h('span', { class: cls }, `${g}${fmt(Math.abs(v))}`);  // the glyph carries the sign
 }
 const signedPct = (v, d = 1) => signed(v, x => pct(x, d), 0.5 * 10 ** -(d + 2));
+const signedPP = (v, d = 1) => signed(v, x => `${(x * 100).toFixed(d)}pp`, 0.5 * 10 ** -(d + 2));  // difference of two rates
 function panel(title, sub, ctl, ...body) {
   return h('section', { class: 'panel' }, h('h2', {}, title, sub ? h('span', { class: 'sub' }, sub) : null, ctl ? h('span', { class: 'ctl' }, ctl) : null), ...body);
 }
@@ -306,15 +307,26 @@ const SCREEN = {
     if (acct === 'ALL') {
       const last = a => a[a.length - 1];
       const you = series[0].values;
+      // Every figure is shown both ways: the rate, and the money it is worth over this range.
+      const slice = arr => arr.slice(i0);
+      const val = slice(P.total), dep = slice(P.contrib);
+      const added = last(dep) - dep[0];
+      const gainYou = last(val) - val[0] - added;
+      const retYou = last(slice(P.twr)) / slice(P.twr)[0] - 1;
+      const marks = Object.entries(P.bench).map(([b, x]) => {
+        const bv = slice(x.value), bt = slice(x.twr);
+        return { short: b.replace('.TO', ''), gain: last(bv) - bv[0] - added, ret: last(bt) / bt[0] - 1 };
+      });
       if (state.mode === 'VALUE') {
-        const dep = series[series.length - 1].values, gainYou = last(you) - you[0] - (last(dep) - dep[0]);
         statsEl = h('div', { class: 'stats' },
-          stat(invested ? 'CAPITAL DEPLOYED' : 'MONEY ADDED', signed(last(dep) - dep[0]), invested ? 'net buys of risk assets in range' : 'deposits minus withdrawals in range'),
-          stat('BALANCE CHANGE', signed(last(you) - you[0]), invested ? 'invested value change' : 'portfolio value change'),
-          stat('INVESTMENT GAIN', signed(gainYou), invested ? 'value change minus capital deployed' : 'value change minus money added'),
-          ...series.slice(1, -1).map(x => { const gb = last(x.values) - x.values[0] - (last(dep) - dep[0]); return stat(`${x.short} INSTEAD`, signed(gb), h('span', {}, 'you vs it: ', signed(gainYou - gb))); }));
+          stat(invested ? 'CAPITAL DEPLOYED' : 'MONEY ADDED', signed(added), invested ? 'net buys of risk assets in range' : 'deposits minus withdrawals in range'),
+          stat('BALANCE CHANGE', signed(last(val) - val[0]), invested ? 'invested value change' : 'portfolio value change'),
+          stat('INVESTMENT GAIN', signed(gainYou), h('span', {}, 'rate: ', signedPct(retYou))),
+          ...marks.map(m => stat(`${m.short} INSTEAD`, signed(m.gain), h('span', {}, 'you vs it: ', signed(gainYou - m.gain), ' · ', signedPP(retYou - m.ret)))));
       } else {
-        statsEl = h('div', { class: 'stats' }, ...series.map(x => stat(x.short === 'YOU' ? 'YOUR RETURN' : x.short, signedPct(last(x.values)), x.short === 'YOU' ? 'time-weighted, flows removed' : h('span', {}, 'you vs it: ', signedPct(last(you) - last(x.values))))));
+        statsEl = h('div', { class: 'stats' },
+          stat('YOUR RETURN', signedPct(retYou), h('span', {}, 'worth ', signed(gainYou), ' in range')),
+          ...marks.map(m => stat(m.short, signedPct(m.ret), h('span', {}, 'you vs it: ', signedPP(retYou - m.ret), ' · ', signed(gainYou - m.gain)))));
       }
     }
     const ctl = [
