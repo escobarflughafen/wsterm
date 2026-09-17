@@ -82,9 +82,14 @@ function table(cols, rows, { sortKey, desc = true, onRow, max } = {}) {
     }) : rows;
     const thead = h('thead', {}, h('tr', {}, cols.map(c => h('th', {
       class: [c.l ? 'l' : '', c.sm === false ? 'sm-hide' : ''].join(' ').trim() || null, 'aria-sort': c.k === key ? (dir < 0 ? 'descending' : 'ascending') : null, scope: 'col',
+      tabindex: 0,
       onclick: () => { if (key === c.k) dir = -dir; else { key = c.k; dir = -1; } draw(); },
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } },
     }, c.label))));
-    const tbody = h('tbody', {}, (max ? sorted.slice(0, max) : sorted).map(r => h('tr', { class: onRow ? 'click' : null, onclick: onRow ? () => onRow(r) : null },
+    const tbody = h('tbody', {}, (max ? sorted.slice(0, max) : sorted).map(r => h('tr', {
+      class: onRow ? 'click' : null, tabindex: onRow ? 0 : null, onclick: onRow ? () => onRow(r) : null,
+      onkeydown: onRow ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRow(r); } } : null,
+    },
       cols.map(c => h('td', { class: [c.l ? 'l' : '', c.sm === false ? 'sm-hide' : ''].join(' ').trim() || null }, c.fmt ? c.fmt(r) : (r[c.k] ?? '—'))))));
     wrap.replaceChildren(h('table', {}, thead, tbody));
   }
@@ -202,7 +207,9 @@ function barList(items, fmt = money, eps = 0.005) {
   return h('div', { class: 'bars body' }, items.map(it => {
     const w = Math.abs(it.value) / max * span;
     const bar = h('div', { class: 'bar ' + (it.value >= 0 ? 'pos' : 'neg'), style: it.value >= 0 ? `left:${zero}%;width:${w}%` : `left:${zero - w}%;width:${w}%` });
-    return h('div', { class: 'br', title: it.title || '', onclick: it.onclick || null, style: it.onclick ? 'cursor:pointer' : '' },
+    return h('div', { class: 'br', title: it.title || '', role: it.onclick ? 'button' : null, tabindex: it.onclick ? 0 : null,
+      onclick: it.onclick || null, onkeydown: it.onclick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); it.onclick(); } } : null,
+      style: it.onclick ? 'cursor:pointer' : '' },
       h('span', { class: 'lab' }, it.label), h('div', { class: 'track' }, h('div', { class: 'zero', style: `left:${zero}%` }), bar), h('span', { class: 'val' }, signed(it.value, fmt, eps)));
   }));
 }
@@ -721,7 +728,7 @@ const SCREEN = {
       ['NVDA <GO>', 'Open a symbol: price history with your buys ▲ and sells ▼'],
       ['T.TO <GO>', 'Use the Yahoo ticker to disambiguate (T = AT&T, T.TO = Telus)'],
       ['/  or start typing', 'Focus the command line'], ['LANG <GO>', 'Language: English / 中文'], ['FETCH <GO>', 'Download only market data that is due, then rebuild'], ['REBUILD <GO>', 'Recompute from exports and cached prices (no network)'], ['ESC', 'Back to previous screen'],
-      ['VIM <GO>  or  top-right VIM', 'Enable Vim keys: h/l screens · j/k scroll · gg/G top/bottom · Ctrl-d/Ctrl-u half-page · b back · i/: command'],
+      ['VIM <GO>  or  top-right VIM', 'Enable Vim keys: h/j/k/l move between panel controls · Enter/Space activate · gg/G top/bottom · Ctrl-d/Ctrl-u half-page · b back · i/: command'],
       [':q  or  top-right EXIT VIM', 'Exit Vim mode'],
       ['DATA <GO>  or  0', 'Fetch history, request budget, per-ticker freshness'],
       ['IMPORT <GO>', 'Upload new Wealthsimple CSV exports (preview before commit)'],
@@ -1051,11 +1058,6 @@ function goBack() {
   if (!back.length) return;
   const p = back.pop(); state.sym = p.sym; go(p.screen, false);
 }
-function stepScreen(delta) {
-  let i = SCREENS.findIndex(([key]) => key === state.screen);
-  if (i < 0) i = delta > 0 ? -1 : 0;
-  go(SCREENS[(i + delta + SCREENS.length) % SCREENS.length][0]);
-}
 function updateVimUI() {
   const b = $('#vimbtn');
   b.textContent = tr(vimMode ? 'EXIT VIM' : 'VIM');
@@ -1066,8 +1068,52 @@ function updateVimUI() {
 function setVimMode(enabled) {
   vimMode = Boolean(enabled);
   try { localStorage.setItem('vim-mode', vimMode ? '1' : '0'); } catch {}
+  if (!vimMode) document.querySelectorAll('.vim-focus').forEach(el => el.classList.remove('vim-focus'));
   updateVimUI();
-  msg(vimMode ? 'VIM MODE · h/l screens · j/k scroll · gg/G edges · i/: command' : 'VIM MODE OFF');
+  msg(vimMode ? 'VIM MODE · h/j/k/l controls · Enter activates · gg/G edges · i/: command' : 'VIM MODE OFF');
+}
+const VIM_TARGET_SELECTOR = [
+  'button:not([disabled])', 'a[href]', 'select:not([disabled])',
+  'input:not([disabled]):not([type="hidden"]):not([type="file"])', 'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+function vimTargets() {
+  return [...new Set([...$('#main').querySelectorAll(VIM_TARGET_SELECTOR)])].filter(el => {
+    const box = el.getBoundingClientRect(), style = getComputedStyle(el);
+    return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && !el.closest('[inert]');
+  });
+}
+function moveVimFocus(direction) {
+  const targets = vimTargets();
+  if (!targets.length) return;
+  const current = targets.includes(document.activeElement) ? document.activeElement : null;
+  let next;
+  if (!current) {
+    const ordered = targets.map(el => ({ el, box: el.getBoundingClientRect() }))
+      .sort((a, b) => a.box.top - b.box.top || a.box.left - b.box.left);
+    next = (direction === 'h' || direction === 'k' ? ordered.at(-1) : ordered[0]).el;
+  } else {
+    const from = current.getBoundingClientRect();
+    const fx = from.left + from.width / 2, fy = from.top + from.height / 2;
+    const horizontal = direction === 'h' || direction === 'l';
+    const sign = direction === 'h' || direction === 'k' ? -1 : 1;
+    const scored = targets.filter(el => el !== current).map(el => {
+      const box = el.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+      const primary = sign * (horizontal ? x - fx : y - fy);
+      if (primary <= 3) return null;
+      const overlaps = horizontal
+        ? box.top < from.bottom && box.bottom > from.top
+        : box.left < from.right && box.right > from.left;
+      const cross = Math.abs(horizontal ? y - fy : x - fx);
+      return { el, score: primary + (overlaps ? cross * .15 : cross * 3) };
+    }).filter(Boolean).sort((a, b) => a.score - b.score);
+    next = scored[0] && scored[0].el;
+  }
+  if (!next) return;
+  document.querySelectorAll('.vim-focus').forEach(el => el.classList.remove('vim-focus'));
+  next.classList.add('vim-focus');
+  next.focus({ preventScroll: true });
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
 }
 function render() {
   resizeHooks = [];
@@ -1192,15 +1238,15 @@ setInterval(() => { if (cooldownUntil > Date.now()) updateFetchUI(); }, 1000);
 setInterval(() => { if (!ST || !ST.job.running) pollStatus().then(() => state.screen === 'DATA' && rerenderKeepScroll()); }, 60000);
 let vimGAt = 0;
 document.addEventListener('keydown', e => {
-  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  const active = document.activeElement;
+  const typing = active && (active.id === 'cmd' || active.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'));
   if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else goBack(); return; }
   if (typing || e.metaKey || e.altKey) return;
   if (vimMode) {
     const halfPage = Math.max(160, Math.round(innerHeight * .5));
     if (e.ctrlKey && (e.key === 'd' || e.key === 'u')) { e.preventDefault(); scrollBy({ top: e.key === 'd' ? halfPage : -halfPage, behavior: 'smooth' }); return; }
     if (e.ctrlKey) return;
-    if (e.key === 'j' || e.key === 'k') { e.preventDefault(); scrollBy({ top: e.key === 'j' ? 80 : -80, behavior: 'smooth' }); return; }
-    if (e.key === 'h' || e.key === 'l') { e.preventDefault(); stepScreen(e.key === 'h' ? -1 : 1); return; }
+    if (/^[hjkl]$/.test(e.key)) { e.preventDefault(); moveVimFocus(e.key); return; }
     if (e.key === 'b') { e.preventDefault(); goBack(); return; }
     if (e.key === 'G') { e.preventDefault(); scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }); vimGAt = 0; return; }
     if (e.key === 'g') { e.preventDefault(); const now = Date.now(); if (now - vimGAt < 700) { scrollTo({ top: 0, behavior: 'smooth' }); vimGAt = 0; } else vimGAt = now; return; }

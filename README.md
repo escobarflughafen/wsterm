@@ -4,7 +4,7 @@ A self-hosted, Bloomberg-style terminal for a Wealthsimple portfolio: performanc
 trade hindsight, allocation rules, what-if simulation (remove trades, or freeze all trading after a trade/day with
 short- vs long-term comparisons and a hindsight map), and CSV import. English and Simplified Chinese UI
 (`LANG <GO>`, the 中文/EN button, or `?lang=zh`) plus an optional persistent Vim navigation mode (`VIM <GO>` or the
-top-right toggle; `:q` exits). Single container, no database, all state in one
+top-right toggle; `h/j/k/l` moves between panel controls, Enter activates, and `:q` exits). Single container, no database, all state in one
 data directory.
 
 ```

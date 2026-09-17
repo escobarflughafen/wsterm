@@ -140,7 +140,8 @@ th[aria-sort="ascending"]::after { content: " ▴"; }
 ul.plain { margin: 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 12px; }
 .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .actions .fetchbtn { padding: 4px 12px; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+.vim-mode #main .vim-focus { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 /* ---- responsive ---- */
 @media (max-width: 1360px) {
