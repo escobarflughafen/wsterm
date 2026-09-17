@@ -16,7 +16,7 @@ services:
       GUEST_COOKIE_SECURE: "1"
       FETCH_TIMES: ""
     tmpfs:
-      - /guest:uid=10001,gid=10001,mode=0700
+      - /guest:uid=${APP_UID:-10001},gid=${APP_GID:-10001},mode=0700
     command: ["uvicorn", "--app-dir", "pipeline", "server:app", "--host", "0.0.0.0", "--port", "8787",
               "--workers", "1", "--proxy-headers", "--no-server-header", "--no-access-log"]
 
