@@ -112,7 +112,7 @@ scp activities-export-*.csv holdings-report-*.csv <host>:/tmp/
 ssh <host> 'cd portfolio-terminal && make import FILES="/tmp/activities-export-*.csv /tmp/holdings-report-*.csv"'
 ```
 
-### Token-protected guest instance through Cloudflare Tunnel
+### Token-protected guest instance through an anonymous Cloudflare Quick Tunnel
 
 The guest overlay runs a second Compose project on `127.0.0.1:8789` without Basic Auth. A high-entropy token in the
 first URL exchanges for a 24-hour Secure, HttpOnly, SameSite cookie, then redirects to remove the token from the
@@ -123,18 +123,13 @@ job logs and state live under the container's `/guest` tmpfs and disappear whene
 public price, FX and calendar cache files are bind-mounted under `DATA_PATH/public-market`. This is one shared guest
 workspace, so deploy a separate instance/token for each mutually untrusted audience.
 
-1. In Cloudflare, create a remotely-managed Tunnel and publish a hostname whose service URL is
-   `http://portfolio:8787`.
-2. On the host, install `deploy/portfolio-terminal-guest-deploy.sh`, then run `init`.
-3. Put the Cloudflare tunnel token in `CLOUDFLARED_TUNNEL_TOKEN` and the public `https://...` hostname in
-   `GUEST_PUBLIC_URL` inside the generated `.env`.
-4. Run `deploy`, then use `link` to print the bearer URL. The script verifies the health endpoint, URL-token exchange,
+1. On the host, install `deploy/portfolio-terminal-guest-deploy.sh`, then run `init`.
+2. Run `deploy`, then use `link` to print the bearer URL. The script verifies the health endpoint, URL-token exchange,
    session cookie and Tunnel container.
 
-Cloudflare recommends remotely-managed tunnels for most deployments; the sidecar uses the official token-based
-`cloudflared tunnel --no-autoupdate run` flow. The app disables Uvicorn access logs in guest mode so the initial query
-token is not written to app logs. Cloudflare or upstream request logging should also be configured not to retain query
-strings.
+The sidecar uses Cloudflare's anonymous Quick Tunnel flow and receives a random `trycloudflare.com` hostname on each
+recreation. Quick Tunnels are intended for testing, have a 200-concurrent-request limit, and do not provide a stable
+hostname. The app disables Uvicorn access logs in guest mode so the initial query token is not written to app logs.
 
 ### Single-host deployment
 

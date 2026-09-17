@@ -27,9 +27,7 @@ services:
     depends_on:
       portfolio:
         condition: service_healthy
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?Set CLOUDFLARED_TUNNEL_TOKEN in .env}
-    command: ["tunnel", "--no-autoupdate", "run"]
+    command: ["tunnel", "--no-autoupdate", "--url", "http://portfolio:8787"]
     read_only: true
     security_opt:
       - no-new-privileges:true

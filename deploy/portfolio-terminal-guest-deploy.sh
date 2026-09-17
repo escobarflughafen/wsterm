@@ -1,14 +1,13 @@
 #!/bin/bash
-# Portfolio Terminal guest instance — isolated tmpfs portfolio data + persistent public cache + Cloudflare Tunnel.
+# Portfolio Terminal guest instance — tmpfs portfolio data + public cache + anonymous Cloudflare Quick Tunnel.
 #
-#   portfolio-terminal-guest-deploy.sh init [ref]     clone and create .env (tunnel token left for the operator)
+#   portfolio-terminal-guest-deploy.sh init [ref]     clone and create .env with a random guest access token
 #   portfolio-terminal-guest-deploy.sh deploy [ref]   build, start, and verify app + cloudflared
 #   portfolio-terminal-guest-deploy.sh survey         show containers and storage
 #   portfolio-terminal-guest-deploy.sh link           print the bearer guest URL (treat it as a password)
 #   portfolio-terminal-guest-deploy.sh logs
 #
-# Before deploy, configure the remotely-managed Cloudflare Tunnel public hostname to use service
-# http://portfolio:8787, then set CLOUDFLARED_TUNNEL_TOKEN and GUEST_PUBLIC_URL in the instance .env.
+# The public trycloudflare.com hostname is random and changes whenever the cloudflared container is recreated.
 
 set -euo pipefail
 
@@ -23,8 +22,15 @@ COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.guest.yml)
 ok()   { echo "[✓] $*"; }
 warn() { echo "[~] $*"; }
 die()  { echo "[!] $*" >&2; exit 1; }
-env_get() { grep -E "^$1=" "$APP/.env" 2>/dev/null | tail -1 | cut -d= -f2-; }
+env_get() { awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); value=$0} END {print value}' "$APP/.env" 2>/dev/null; }
 compose() { (cd "$APP" && "${COMPOSE[@]}" "$@"); }
+public_url() {
+  local configured
+  configured=$(env_get GUEST_PUBLIC_URL)
+  if [ -n "$configured" ]; then printf '%s\n' "${configured%/}"; return; fi
+  docker logs portfolio-terminal-guest-tunnel 2>&1 \
+    | grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' | tail -1
+}
 
 cmd_init() {
   local ref=${1:-$BRANCH}
@@ -45,7 +51,7 @@ cmd_init() {
         "$APP/.env.example" > "$APP/.env"
     printf '\nGUEST_PUBLIC_URL=\n' >> "$APP/.env"
     chmod 600 "$APP/.env"
-    ok "created $APP/.env; add CLOUDFLARED_TUNNEL_TOKEN and GUEST_PUBLIC_URL"
+    ok "created $APP/.env with a random guest access token"
   else
     warn '.env already exists; left unchanged'
   fi
@@ -75,7 +81,15 @@ verify() {
   [ -n "$cookie" ] || die 'token exchange did not set a session cookie'
   [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "http://127.0.0.1:$PORT/")" = 200 ] || die 'guest session cookie failed'
   [ "$(docker inspect -f '{{.State.Status}}' portfolio-terminal-guest-tunnel 2>/dev/null)" = running ] || die 'cloudflared is not running'
-  ok 'guest auth, app health, and cloudflared verified'
+  local url waited=0
+  while [ "$waited" -lt 60 ]; do
+    url=$(public_url || true)
+    [ -n "$url" ] && break
+    sleep 2; waited=$((waited + 2))
+  done
+  [ -n "$url" ] || die 'cloudflared did not publish a Quick Tunnel URL'
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$url/healthz")" = 200 ] || die 'public tunnel health check failed'
+  ok "guest auth, app health, and Quick Tunnel verified at $url"
 }
 
 cmd_deploy() {
@@ -83,8 +97,6 @@ cmd_deploy() {
   [ -d "$APP/.git" ] || die 'run init first'
   [ -f "$APP/.env" ] || die 'missing .env'
   [ -n "$(env_get GUEST_TOKEN)" ] || die 'GUEST_TOKEN is missing'
-  [ -n "$(env_get CLOUDFLARED_TUNNEL_TOKEN)" ] || die 'CLOUDFLARED_TUNNEL_TOKEN is missing'
-  [ -n "$(env_get GUEST_PUBLIC_URL)" ] || warn 'GUEST_PUBLIC_URL is empty; link command will be unavailable'
   git -C "$APP" fetch -q origin
   git -C "$APP" checkout -q --detach "$ref"
   local sha; sha=$(git -C "$APP" rev-parse --short HEAD)
@@ -104,8 +116,8 @@ cmd_survey() {
 
 cmd_link() {
   local base token
-  base=$(env_get GUEST_PUBLIC_URL); token=$(env_get GUEST_TOKEN)
-  [ -n "$base" ] || die 'GUEST_PUBLIC_URL is empty in .env'
+  base=$(public_url || true); token=$(env_get GUEST_TOKEN)
+  [ -n "$base" ] || die 'Quick Tunnel URL is not available; deploy first'
   [ -n "$token" ] || die 'GUEST_TOKEN is empty in .env'
   base=${base%/}
   printf '%s/?token=%s\n' "$base" "$token"
