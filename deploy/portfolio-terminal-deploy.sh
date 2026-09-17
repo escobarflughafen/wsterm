@@ -1,5 +1,5 @@
 #!/bin/bash
-# Portfolio Terminal — deployment helper for 10.10.20.3
+# Portfolio Terminal — deployment helper for a single-host Docker deployment.
 #
 #   portfolio-terminal-deploy.sh survey                 status of prod and dev
 #   portfolio-terminal-deploy.sh init   <prod|dev>      clone, create .env (random password), data + backup dirs
@@ -10,17 +10,20 @@
 #   portfolio-terminal-deploy.sh logs   <prod|dev>
 #   portfolio-terminal-deploy.sh self-update            install this script from the repo's main branch
 #
-# Instances:  prod = /srv/portfolio-terminal/app  branch main  port 8787  scheduled fetch 17:20 ET
-#             dev  = ~/Workspaces/portfolio-terminal branch dev port 8788  live reload, no schedule
-# Repo:       /home/aoi/git/portfolio-terminal.git  (clone: ssh://aoi@10.10.20.3/home/aoi/git/portfolio-terminal.git)
+# Instances:  prod = /srv/portfolio-terminal/app  branch main  port 8787  scheduled fetch
+#             dev  = ~/Workspaces/portfolio-terminal branch dev   port 8788  live reload, no schedule
+# Override paths, ports and the repo with environment variables (see the block below).
 # Secrets live only in each instance's .env (mode 600). This script never prints them.
 
 set -euo pipefail
 
-REPO=/home/aoi/git/portfolio-terminal.git
-declare -A DIR=([prod]=/srv/portfolio-terminal/app [dev]=/home/aoi/Workspaces/portfolio-terminal)
-declare -A DATA=([prod]=/srv/portfolio-terminal/data [dev]=/home/aoi/Workspaces/portfolio-terminal/data)
-declare -A BACKUPS=([prod]=/srv/portfolio-terminal/backups [dev]=/home/aoi/Workspaces/portfolio-terminal/backups)
+REPO=${PT_REPO:-$HOME/git/portfolio-terminal.git}
+PROD_ROOT=${PT_PROD_ROOT:-/srv/portfolio-terminal}
+DEV_ROOT=${PT_DEV_ROOT:-$HOME/Workspaces/portfolio-terminal}
+HOST_URL=${PT_HOST_URL:-http://127.0.0.1}
+declare -A DIR=([prod]=$PROD_ROOT/app [dev]=$DEV_ROOT)
+declare -A DATA=([prod]=$PROD_ROOT/data [dev]=$DEV_ROOT/data)
+declare -A BACKUPS=([prod]=$PROD_ROOT/backups [dev]=$DEV_ROOT/backups)
 declare -A BRANCH=([prod]=main [dev]=dev)
 declare -A PORT=([prod]=8787 [dev]=8788)
 declare -A PROJECT=([prod]=portfolio-terminal [dev]=portfolio-terminal-dev)
@@ -57,9 +60,9 @@ cmd_init() {
   local inst; inst=$(instance "${1:-}")
   banner "INIT ${inst^^}"
   local parent; parent=$(dirname "${DIR[$inst]}")
-  if [ "$inst" = prod ] && [ ! -w /srv/portfolio-terminal ]; then
-    die "/srv/portfolio-terminal is missing or not writable. Run once:
-    sudo install -d -o $(id -un) -g $(id -gn) -m 750 /srv/portfolio-terminal"
+  if [ "$inst" = prod ] && [ ! -w "$PROD_ROOT" ]; then
+    die "$PROD_ROOT is missing or not writable. Run once:
+    sudo install -d -o $(id -un) -g $(id -gn) -m 750 $PROD_ROOT"
   fi
   mkdir -p "$parent"
 
@@ -76,6 +79,14 @@ cmd_init() {
   chmod 750 "${DATA[$inst]}" "${BACKUPS[$inst]}"
   ok "data    ${DATA[$inst]}"
   ok "backups ${BACKUPS[$inst]}"
+
+  section "Config"
+  if [ -f "${DATA[$inst]}/config.json" ]; then
+    ok "config.json present (targets, buckets, rules)"
+  else
+    cp "${DIR[$inst]}/pipeline/config.example.json" "${DATA[$inst]}/config.json"
+    ok "config.json seeded from the example — edit ${DATA[$inst]}/config.json"
+  fi
 
   section "Environment (.env)"
   local envf="${DIR[$inst]}/.env"
@@ -192,7 +203,7 @@ cmd_deploy() {
     ok "healthy"
     docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^portfolio-terminal:${inst}-" | grep -v ":${TAG}$" \
       | tail -n +3 | xargs -r docker rmi -f >/dev/null 2>&1 || true
-    banner "DONE  ${inst^^} ${sha}  http://10.10.20.3:${PORT[$inst]}"
+    banner "DONE  ${inst^^} ${sha}  ${HOST_URL}:${PORT[$inst]}"
     return 0
   fi
 
@@ -246,7 +257,7 @@ cmd_survey() {
     echo "Commit   : $(git -C "${DIR[$inst]}" log -1 --format='%h %cr %s' | cut -c1-70)"
     local state; state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$(container "$inst")" 2>/dev/null || echo "not running")
     echo "Container: $(container "$inst")  $state"
-    echo "URL      : http://10.10.20.3:${PORT[$inst]}"
+    echo "URL      : ${HOST_URL}:${PORT[$inst]}"
     echo "Data     : $(du -sh "${DATA[$inst]}" 2>/dev/null | cut -f1)  ${DATA[$inst]}"
     local last; last=$(ls -1t "${BACKUPS[$inst]}"/*.tgz 2>/dev/null | head -1 || true)
     echo "Backup   : ${last:-none}"

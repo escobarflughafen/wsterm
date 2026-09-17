@@ -20,7 +20,7 @@ Browser ──HTTPS──► reverse proxy (Caddy/Traefik/nginx) ──► portf
 local virtualenv. Nothing else: no database, no build step, no Node.
 
 ```sh
-git clone ssh://aoi@10.10.20.3/home/aoi/git/portfolio-terminal.git
+git clone git@github.com:escobarflughafen/wsterm.git
 cd portfolio-terminal
 git checkout dev                 # day-to-day work happens on dev; main is what production runs
 cp .env.example .env             # set APP_PASSWORD, or ALLOW_NO_AUTH=1 for a local-only run
@@ -83,12 +83,12 @@ Python, surface it in `app.js`, and add its strings to `i18n.js`.
 
 ```sh
 git checkout dev && ...edit... && make test && git commit && git push origin dev
-ssh aoi@10.10.20.3 '~/Maintenances/portfolio-terminal-deploy.sh deploy dev'    # verify on :8788
-ssh aoi@10.10.20.3 '~/Maintenances/portfolio-terminal-deploy.sh promote'       # main ← dev, then prod on :8787
+ssh <host> '~/Maintenances/portfolio-terminal-deploy.sh deploy dev'    # verify on :8788
+ssh <host> '~/Maintenances/portfolio-terminal-deploy.sh promote'       # main ← dev, then prod on :8787
 ```
 
 Config that is data, not code — target mix, bucket membership, rule thresholds, benchmark and equivalent tickers —
-lives in `pipeline/config.json`.
+lives in `$DATA_DIR/config.json` (seeded from `pipeline/config.example.json`, never committed).
 
 ## Deploy (home lab)
 
@@ -104,23 +104,24 @@ make logs
 Then import data through the UI, or from your laptop:
 
 ```sh
-scp activities-export-*.csv holdings-report-*.csv server:/tmp/
-ssh server 'cd portfolio-terminal && make import FILES="/tmp/activities-export-2026-09-16.csv /tmp/holdings-report-2026-09-16.csv"'
+scp activities-export-*.csv holdings-report-*.csv <host>:/tmp/
+ssh <host> 'cd portfolio-terminal && make import FILES="/tmp/activities-export-*.csv /tmp/holdings-report-*.csv"'
 ```
 
-### Host deployment (10.10.20.3)
+### Single-host deployment
 
 Prod (`/srv/portfolio-terminal`, :8787, branch `main`) and dev (`~/Workspaces/portfolio-terminal`, :8788, branch `dev`)
 are managed by `deploy/portfolio-terminal-deploy.sh`, installed on the host as `~/Maintenances/portfolio-terminal-deploy.sh`
 (`init`, `deploy` with verification and automatic rollback, `backup`, `seed-dev`, `promote`, `survey`, `self-update`).
-The full runbook lives on the host at `~/Deployments/portfolio-terminal-20260917.md`.
+Paths, ports and the repo URL are overridable (`PT_PROD_ROOT`, `PT_DEV_ROOT`, `PT_REPO`, `PT_HOST_URL`); keep the
+host-specific runbook outside this repo.
 
 ### TLS / reverse proxy
 
 The app speaks plain HTTP and expects a proxy in front. Caddy example (automatic certificates, LAN or Tailscale name):
 
 ```caddy
-portfolio.home.arpa {
+portfolio.example.lan {
     tls internal
     reverse_proxy 127.0.0.1:8787
 }
@@ -160,7 +161,8 @@ All via environment (`.env`):
 | `FETCH_COOLDOWN_S` | `60` | Minimum gap between manual fetches. |
 | `DATA_DIR` | `/data` (container), `./var` (local) | Root of all state; `EXPORTS_DIR`, `MARKET_DIR`, `BUILD_DIR` override parts. |
 
-Portfolio targets, bucket membership and rule thresholds live in `pipeline/config.json`.
+Portfolio targets, bucket membership and rule thresholds live in `$DATA_DIR/config.json`, seeded from
+`pipeline/config.example.json` on first init. It stays out of git so a public repo carries no personal strategy.
 
 ## Importing data
 

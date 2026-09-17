@@ -10,28 +10,14 @@
       "QQQ",
       "VFV",
       "XEQT",
-      "XQQ",
-      "QQQI",
-      "ALLW"
+      "XQQ"
     ],
     "cash": [
       "CCAD",
       "TCSH",
       "CBIL"
     ],
-    "speculative": [
-      "NVDU",
-      "TSMX",
-      "MUU",
-      "USD",
-      "SOXS",
-      "DRAM",
-      "KWEB",
-      "URA",
-      "JETS",
-      "GOU",
-      "IBIT"
-    ]
+    "speculative": []
   },
   "rules": {
     "max_single_stock_pct": 0.04,

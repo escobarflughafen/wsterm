@@ -4,7 +4,7 @@
   EXPORTS_DIR     Wealthsimple exports: merged masters, upload archive, inbox       (default $DATA_DIR/exports)
   MARKET_DIR      cached prices, FX, fetch state and logs                           (default $DATA_DIR/market)
   BUILD_DIR       computed data.json served to the browser                          (default $DATA_DIR/build)
-  CONFIG_PATH     targets, buckets, rule thresholds                                 (default pipeline/config.json)
+  CONFIG_PATH     targets, buckets, rule thresholds   (default $DATA_DIR/config.json, else pipeline/config.example.json)
   APP_USER / APP_PASSWORD   HTTP Basic auth; required unless ALLOW_NO_AUTH=1
   FETCH_TIMES     comma-separated HH:MM (TZ below) for automatic weekday fetches; empty disables
   TZ_NAME         timezone for FETCH_TIMES (default America/Toronto)
@@ -25,7 +25,9 @@ DATA_DIR = _path('DATA_DIR', ROOT / 'var')
 EXPORTS_DIR = _path('EXPORTS_DIR', DATA_DIR / 'exports')
 MARKET_DIR = _path('MARKET_DIR', DATA_DIR / 'market')
 BUILD_DIR = _path('BUILD_DIR', DATA_DIR / 'build')
-CONFIG_PATH = _path('CONFIG_PATH', ROOT / 'pipeline' / 'config.json')
+# Your own targets and buckets live with your data, never in git. The example keeps a fresh clone runnable.
+_user_config = Path(os.environ.get('CONFIG_PATH') or (DATA_DIR / 'config.json'))
+CONFIG_PATH = _user_config if _user_config.exists() else ROOT / 'pipeline' / 'config.example.json'
 
 APP_USER = os.environ.get('APP_USER', 'admin')
 APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
