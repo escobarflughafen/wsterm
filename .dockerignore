@@ -4,7 +4,6 @@
 var
 data
 backups
-tests
 .env
 **/__pycache__
 **/.DS_Store

@@ -5,7 +5,9 @@
 #   APP_UID / APP_GID     host owner of DATA_PATH (the container runs as that user)
 services:
   portfolio:
-    build: .
+    build:
+      context: .
+      target: app        # the Dockerfile's last stage is `test`; the runtime image is `app`
     image: portfolio-terminal:${TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-portfolio-terminal}
     restart: unless-stopped

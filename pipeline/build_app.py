@@ -68,6 +68,7 @@ def main():
         total=[r2(v) for v in total], contrib=[r2(v) for v in contrib],
         twr=[round(float(v), 5) for v in twr],
         accounts={a: [r2(v) for v in value[a]] for a in accounts},
+        account_contrib={a: [r2(v) for v in flows[a]] for a in accounts},
         bench={b: dict(value=[r2(v) for v in bench[b]['value']], twr=[round(float(v), 5) for v in bench[b]['twr']])
                for b in bench},
     )

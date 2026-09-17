@@ -204,6 +204,15 @@ function barList(items, fmt = money, eps = 0.005) {
 }
 
 // ---------- range slicing ----------
+// Time-weighted return over a slice: strip each day's deposits so contributions don't count as performance.
+function twrOf(values, contribs) {
+  let idx = 1;
+  for (let i = 1; i < values.length; i++) {
+    const flow = contribs[i] - contribs[i - 1];
+    if (values[i - 1] > 50) idx *= (values[i] - flow) / values[i - 1];
+  }
+  return idx - 1;
+}
 function rangeStart(dates, range) {
   if (range === 'ALL') return 0;
   const end = new Date(dates[dates.length - 1]);
@@ -264,10 +273,20 @@ const SCREEN = {
     let series, yfmt, statsEl;
     if (acct !== 'ALL') {
       const v = sr.accounts[acct].slice(i0);
-      series = [{ name: acct.toUpperCase(), short: 'VALUE', color: 'var(--s1)', values: v }];
+      const c = (sr.account_contrib && sr.account_contrib[acct] ? sr.account_contrib[acct] : sr.contrib).slice(i0);
+      const added = c[c.length - 1] - c[0];                       // deposits and transfers in this range
+      const change = v[v.length - 1] - v[0];                      // what the balance did
+      series = [
+        { name: acct.toUpperCase(), short: 'VALUE', color: 'var(--s1)', values: v },
+        { name: 'NET DEPOSITED', short: 'DEPOSITED', color: 'var(--ref)', width: 1.5, values: c },
+      ];
       yfmt = v => money(v);
-      statsEl = h('div', { class: 'stats' }, stat('VALUE', money(v[v.length - 1])), stat('CHANGE IN RANGE', signed(v[v.length - 1] - v[0])));
-      series.push(...[]);
+      statsEl = h('div', { class: 'stats' },
+        stat('VALUE', money(v[v.length - 1]), `${dates[0]} → ${dates[dates.length - 1]}`),
+        stat('BALANCE CHANGE', signed(change), 'money added + investment gain'),
+        stat('MONEY ADDED', signed(added), 'deposits and transfers in range'),
+        stat('INVESTMENT GAIN', signed(change - added), 'balance change minus money added'),
+        stat('RETURN', signedPct(twrOf(v, c)), 'time-weighted, money in and out removed'));
     } else if (state.mode === 'VALUE') {
       series = [
         { name: invested ? 'INVESTED (NO CASH)' : 'PORTFOLIO', short: 'YOU', color: 'var(--s1)', values: P.total.slice(i0) },
@@ -290,7 +309,9 @@ const SCREEN = {
       if (state.mode === 'VALUE') {
         const dep = series[series.length - 1].values, gainYou = last(you) - you[0] - (last(dep) - dep[0]);
         statsEl = h('div', { class: 'stats' },
-          stat('YOUR GAIN IN RANGE', signed(gainYou), invested ? 'value change minus capital deployed' : 'value change minus deposits'),
+          stat(invested ? 'CAPITAL DEPLOYED' : 'MONEY ADDED', signed(last(dep) - dep[0]), invested ? 'net buys of risk assets in range' : 'deposits minus withdrawals in range'),
+          stat('BALANCE CHANGE', signed(last(you) - you[0]), invested ? 'invested value change' : 'portfolio value change'),
+          stat('INVESTMENT GAIN', signed(gainYou), invested ? 'value change minus capital deployed' : 'value change minus money added'),
           ...series.slice(1, -1).map(x => { const gb = last(x.values) - x.values[0] - (last(dep) - dep[0]); return stat(`${x.short} INSTEAD`, signed(gb), h('span', {}, 'you vs it: ', signed(gainYou - gb))); }));
       } else {
         statsEl = h('div', { class: 'stats' }, ...series.map(x => stat(x.short === 'YOU' ? 'YOUR RETURN' : x.short, signedPct(last(x.values)), x.short === 'YOU' ? 'time-weighted, flows removed' : h('span', {}, 'you vs it: ', signedPct(last(you) - last(x.values))))));

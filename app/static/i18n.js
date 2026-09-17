@@ -57,6 +57,13 @@ const ZH = {
   'Returns rebased to 0% at the range start. Early months are noisy because balances were small.': '收益率以区间起点为 0%。早期余额较小，波动较大。',
   'Account value in CAD, including cash.': '账户市值（加元），含现金。',
 
+  'BALANCE CHANGE': '余额变化', 'MONEY ADDED': '新增资金', 'INVESTMENT GAIN': '投资收益',
+  'money added + investment gain': '新增资金 + 投资收益', 'deposits and transfers in range': '区间内的存入与转入',
+  'balance change minus money added': '余额变化减去新增资金', 'value change minus money added': '市值变化减去新增资金',
+  'time-weighted, money in and out removed': '时间加权，已剔除资金进出',
+  'net buys of risk assets in range': '区间内风险资产净买入', 'deposits minus withdrawals in range': '区间内存入减取出',
+  'portfolio value change': '组合市值变化', 'invested value change': '已投资市值变化',
+
   // PNL
   'BEST 12': '最佳 12 个', 'WORST 12': '最差 12 个', 'realized, CAD': '已实现，加元', 'BY BUCKET': '按类别', 'BY HOLDING TIME': '按持有时间',
   'days since position opened': '自建仓起的天数', 'HELD': '持有', 'AVG / SELL': '每笔卖出平均', 'WIN %': '胜率', 'ALL POSITIONS': '全部持仓',

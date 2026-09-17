@@ -14,16 +14,81 @@ Browser ──HTTPS──► reverse proxy (Caddy/Traefik/nginx) ──► portf
                                                               └─► Yahoo Finance + Bank of Canada (incremental, rate-limited)
 ```
 
-## Quick start (local)
+## Getting started
+
+**Prerequisites:** Docker with the Compose plugin (everything runs in a container), or Python 3.11+ if you prefer a
+local virtualenv. Nothing else: no database, no build step, no Node.
 
 ```sh
-make setup                 # .venv with runtime + test deps (Python 3.11)
-make test
-make dev                   # http://127.0.0.1:8787, no auth, data in ./var
+git clone ssh://aoi@10.10.20.3/home/aoi/git/portfolio-terminal.git
+cd portfolio-terminal
+git checkout dev                 # day-to-day work happens on dev; main is what production runs
+cp .env.example .env             # set APP_PASSWORD, or ALLOW_NO_AUTH=1 for a local-only run
+make dev-up                      # build + start with live reload → http://127.0.0.1:8787
+make logs
 ```
 
-Open the app, go to **IMP**, drop your `activities-export-*.csv` and `holdings-report-*.csv`, review the preview,
-commit. Prices for new symbols are fetched automatically.
+`make dev-up` mounts `pipeline/` and `app/` into the container, so saving a file reloads the server; a browser refresh
+picks up UI changes. `make down` stops it.
+
+**Without Docker:**
+
+```sh
+make setup                       # .venv with runtime + dev dependencies (PYTHON=python3.12 to pick an interpreter)
+make test
+make dev                         # uvicorn --reload on 127.0.0.1:8787, data in ./var
+```
+
+### Giving it data
+
+The app starts empty and says so. Three ways to fill it:
+
+| Source | How |
+|---|---|
+| Your own exports | Open the app → **IMP** screen → drop `activities-export-*.csv` and `holdings-report-*.csv` → preview → commit. Prices for new symbols are fetched automatically. |
+| A copy of another instance | `rsync -a <other>/data/ ./data/` (or `~/Maintenances/portfolio-terminal-deploy.sh seed-dev` on the host) |
+| Nothing real | `tests/fixtures/*.csv` are small synthetic exports; import them the same way. |
+
+Data lives in `DATA_PATH` (`./data` for Docker, `./var` for the local venv) and is never committed.
+
+### Tests
+
+```sh
+make test          # .venv
+make test-docker   # same suite inside the image; no local Python needed
+```
+
+24 tests cover the import merge rules, the average-cost ledger, fetch scheduling, the freeze simulation and the HTTP
+layer (auth, CSRF, upload limits, path traversal). They use synthetic fixtures only — never real exports.
+
+### Where things are
+
+```
+pipeline/settings.py     env-driven paths and secrets            app/index.html        page shell
+pipeline/store.py        CSV import: validate, merge, archive    app/static/app.js     all screens and charts
+pipeline/ledger.py       average-cost positions and realized P&L app/static/app.css    terminal theme
+pipeline/market_data.py  incremental Yahoo/BoC fetch             app/static/i18n.js    EN/中文 strings
+pipeline/prices.py       cached price/FX readers (split-aware)   tests/                pytest + fixtures
+pipeline/engine.py       daily replay, benchmarks, remove-trades deploy/               host deploy script
+pipeline/freeze.py       stop-trading simulation                 Dockerfile            app + test stages
+pipeline/build_app.py    computes data.json (what the UI reads)  docker-compose*.yml   prod + dev overlay
+pipeline/jobs.py         background jobs, cooldown, scheduler    Makefile              every task
+pipeline/server.py       FastAPI: auth, CSRF, headers, API
+```
+
+The UI never computes portfolio figures: `build_app.py` writes `data.json` and the browser renders it. Add a metric in
+Python, surface it in `app.js`, and add its strings to `i18n.js`.
+
+### Change workflow
+
+```sh
+git checkout dev && ...edit... && make test && git commit && git push origin dev
+ssh aoi@10.10.20.3 '~/Maintenances/portfolio-terminal-deploy.sh deploy dev'    # verify on :8788
+ssh aoi@10.10.20.3 '~/Maintenances/portfolio-terminal-deploy.sh promote'       # main ← dev, then prod on :8787
+```
+
+Config that is data, not code — target mix, bucket membership, rule thresholds, benchmark and equivalent tickers —
+lives in `pipeline/config.json`.
 
 ## Deploy (home lab)
 
@@ -125,23 +190,10 @@ and a second 429 stops the run with cached data intact. Typical trading day: ~30
 - Uploads: size-limited, header-validated, filenames sanitized, stored under generated names; ticker routes regex-checked.
 - `.gitignore` and `.dockerignore` exclude `var/`, `.env`, backups and every CSV except synthetic test fixtures.
 
-## Development
+## Notes for contributors
 
-```
-pipeline/
-  settings.py     env-driven paths and secrets
-  store.py        import: validate, stage, merge, archive, inbox
-  ledger.py       average-cost positions and realized P&L
-  market_data.py  incremental Yahoo/BoC fetch with request budget
-  prices.py       cached price/FX readers (split-aware)
-  engine.py       daily portfolio replay, benchmarks, remove-trades simulation
-  freeze.py       stop-trading simulation: horizons, holdings at freeze, weekly hindsight sweep
-  build_app.py    computes data.json
-  jobs.py         single-flight background jobs, cooldown, weekday scheduler
-  server.py       FastAPI app: auth, CSRF, headers, API, static files
-app/              index.html + static/app.{js,css}, static/i18n.js (EN/中文 strings and patterns; no build step)
-tests/            pytest with synthetic fixtures (never real exports)
-```
-
-Run exactly one worker: jobs and the scheduler are in-process. CI (`.github/workflows/ci.yml`) runs the tests, builds
-the image and smoke-tests auth.
+- **One worker only.** Background jobs and the scheduler live in the process; a second worker would duplicate fetches.
+- **Branches.** `dev` is where work lands, `main` is what production runs; `promote` fast-forwards main to dev's commit.
+- **Never commit data.** `.gitignore` blocks `data/`, `var/`, `.env` and every CSV except `tests/fixtures/`.
+- **CI** (`.github/workflows/ci.yml`) runs the tests, builds the image and smoke-tests that auth is enforced.
+- **Adding a screen:** add it to `SCREENS` in `app.js`, write its render function, add strings to `i18n.js`.

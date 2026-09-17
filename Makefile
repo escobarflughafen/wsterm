@@ -1,20 +1,24 @@
+PYTHON  ?= python3          # 3.11+; override: make setup PYTHON=python3.12
 PY      := .venv/bin/python
 STAMP   := $(shell date +%Y%m%d-%H%M%S)
 COMPOSE := docker compose
 
-.PHONY: help setup dev test build up down logs shell backup restore import fetch rebuild deploy dev-up
+.PHONY: help setup dev test test-docker build up down logs shell backup restore import fetch rebuild deploy dev-up
 
 help:            ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
-setup:           ## create .venv with dev dependencies
-	python3.11 -m venv .venv && $(PY) -m pip install -q -r requirements-dev.txt
+setup:           ## create .venv with dev dependencies (needs Python 3.11+)
+	$(PYTHON) -m venv .venv && $(PY) -m pip install -q -r requirements-dev.txt
 
 dev:             ## run locally without auth on 127.0.0.1:8787 (data in ./var)
 	ALLOW_NO_AUTH=1 .venv/bin/uvicorn --app-dir pipeline server:app --host 127.0.0.1 --port 8787 --reload
 
-test:            ## run the test suite
+test:            ## run the test suite in .venv
 	$(PY) -m pytest -q
+
+test-docker:     ## run the test suite inside the image (no local Python needed)
+	docker build --target test -t portfolio-terminal:test . && echo "[ok] tests passed in container"
 
 build:           ## build the container image
 	$(COMPOSE) build
