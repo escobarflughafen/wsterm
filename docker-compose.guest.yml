@@ -1,0 +1,43 @@
+# Guest overlay: private portfolio state is tmpfs-only; only fetched public market data persists.
+# Run with: docker compose -f docker-compose.yml -f docker-compose.guest.yml up -d --build
+services:
+  portfolio:
+    environment:
+      DATA_DIR: /guest
+      EXPORTS_DIR: /guest/exports
+      MARKET_DIR: /guest/market-private
+      PUBLIC_MARKET_DIR: /data/public-market
+      BUILD_DIR: /guest/build
+      CONFIG_PATH: /app/pipeline/config.example.json
+      APP_PASSWORD: ""
+      ALLOW_NO_AUTH: "0"
+      GUEST_MODE: "1"
+      GUEST_TOKEN: ${GUEST_TOKEN:?Set GUEST_TOKEN in .env}
+      GUEST_COOKIE_SECURE: "1"
+      FETCH_TIMES: ""
+    tmpfs:
+      - /guest:uid=10001,gid=10001,mode=0700
+    command: ["uvicorn", "--app-dir", "pipeline", "server:app", "--host", "0.0.0.0", "--port", "8787",
+              "--workers", "1", "--proxy-headers", "--no-server-header", "--no-access-log"]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-portfolio-terminal-guest}-tunnel
+    restart: unless-stopped
+    depends_on:
+      portfolio:
+        condition: service_healthy
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?Set CLOUDFLARED_TUNNEL_TOKEN in .env}
+    command: ["tunnel", "--no-autoupdate", "run"]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

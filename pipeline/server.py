@@ -3,26 +3,32 @@
 Dev:   .venv/bin/uvicorn --app-dir pipeline server:app --reload   (set ALLOW_NO_AUTH=1 for local use without a password)
 Prod:  see Dockerfile / docker-compose.yml. Run exactly one worker: jobs and the scheduler live in-process.
 """
-import base64, contextlib, json, logging, re, secrets, threading, time
+import base64, contextlib, hashlib, hmac, json, logging, re, secrets, threading, time
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import engine, freeze, jobs, market_data, store
 from ledger import load_activities
-from settings import (ALLOW_NO_AUTH, APP_PASSWORD, APP_USER, BUILD_DIR, FETCH_TIMES, MARKET_DIR, MAX_UPLOAD_MB,
-                      STATIC_DIR)
+from settings import (ALLOW_NO_AUTH, APP_PASSWORD, APP_USER, BUILD_DIR, FETCH_TIMES, GUEST_COOKIE_SECURE, GUEST_MODE,
+                      GUEST_SESSION_HOURS, GUEST_TOKEN, MARKET_DIR, MAX_UPLOAD_MB, PUBLIC_MARKET_DIR, STATIC_DIR)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 log = logging.getLogger('portfolio')
 TICKER = re.compile(r'^[A-Za-z0-9.\-^=]{1,24}$')
 CSRF_HEADER = 'x-requested-with'
 PUBLIC = {'/healthz'}
+GUEST_COOKIE = 'pt_guest_session'
 
-if not APP_PASSWORD and not ALLOW_NO_AUTH:
-    raise SystemExit('Refusing to start without APP_PASSWORD. Set one, or ALLOW_NO_AUTH=1 for local-only use.')
+if GUEST_MODE and not GUEST_TOKEN:
+    raise SystemExit('Refusing to start guest mode without GUEST_TOKEN.')
+if GUEST_MODE and len(GUEST_TOKEN) < 32:
+    raise SystemExit('GUEST_TOKEN must be at least 32 characters.')
+if not GUEST_MODE and not APP_PASSWORD and not ALLOW_NO_AUTH:
+    raise SystemExit('Refusing to start without APP_PASSWORD. Set one, enable guest mode, or ALLOW_NO_AUTH=1 locally.')
 
 
 @contextlib.asynccontextmanager
@@ -41,10 +47,36 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 
+def _guest_session():
+    return hmac.new(GUEST_TOKEN.encode(), b'portfolio-terminal-guest-session-v1', hashlib.sha256).hexdigest()
+
+
+def _security_headers(response, path):
+    response.headers.update({
+        'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+        'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    })
+    if path.startswith('/api') or path.endswith('.json') or path.endswith('.csv'):
+        response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.middleware('http')
 async def guard(request: Request, call_next):
     path = request.url.path
-    if path not in PUBLIC and APP_PASSWORD:
+    if path not in PUBLIC and GUEST_MODE:
+        supplied = request.query_params.get('token', '')
+        if supplied and secrets.compare_digest(supplied, GUEST_TOKEN) and request.method in ('GET', 'HEAD'):
+            clean_query = urlencode([(k, v) for k, v in request.query_params.multi_items() if k != 'token'])
+            response = RedirectResponse(path + (f'?{clean_query}' if clean_query else ''), status_code=303)
+            response.set_cookie(GUEST_COOKIE, _guest_session(), max_age=GUEST_SESSION_HOURS * 3600, httponly=True,
+                                secure=GUEST_COOKIE_SECURE, samesite='strict', path='/')
+            response.headers['Cache-Control'] = 'no-store'
+            return _security_headers(response, path)
+        session = request.cookies.get(GUEST_COOKIE, '')
+        if not session or not secrets.compare_digest(session, _guest_session()):
+            return _security_headers(PlainTextResponse('Guest token required', 401), path)
+    elif path not in PUBLIC and APP_PASSWORD:
         ok = False
         auth = request.headers.get('authorization', '')
         if auth.startswith('Basic '):
@@ -54,18 +86,14 @@ async def guard(request: Request, call_next):
             except Exception:
                 ok = False
         if not ok:
-            return PlainTextResponse('Authentication required', 401, headers={'WWW-Authenticate': 'Basic realm="portfolio"'})
+            response = PlainTextResponse('Authentication required', 401, headers={'WWW-Authenticate': 'Basic realm="portfolio"'})
+            return _security_headers(response, path)
     # Browsers attach Basic credentials to cross-site form posts; a custom header can only come from our own JS.
     if request.method not in ('GET', 'HEAD', 'OPTIONS') and request.headers.get(CSRF_HEADER) != 'portfolio':
-        return PlainTextResponse('Missing X-Requested-With header', 403)
+        return _security_headers(PlainTextResponse('Missing X-Requested-With header', 403), path)
     started = time.perf_counter()
     response = await call_next(request)
-    response.headers.update({
-        'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
-        'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    })
-    if path.startswith('/api') or path.endswith('.json') or path.endswith('.csv'):
-        response.headers['Cache-Control'] = 'no-store'
+    _security_headers(response, path)
     if path.startswith('/api') and request.method != 'GET':
         log.info('%s %s %s %.0fms', request.method, path, response.status_code, (time.perf_counter() - started) * 1000)
     return response
@@ -75,7 +103,7 @@ async def guard(request: Request, call_next):
 @app.get('/healthz')
 def healthz():
     data = BUILD_DIR / 'data.json'
-    return dict(ok=True, data=data.exists(), data_age_s=int(time.time() - data.stat().st_mtime) if data.exists() else None,
+    return dict(ok=True, guest=GUEST_MODE, data=data.exists(), data_age_s=int(time.time() - data.stat().st_mtime) if data.exists() else None,
                 job_running=jobs.snapshot()['job']['running'])
 
 
@@ -97,7 +125,7 @@ def data_json():
 
 @app.get('/prices/{ticker}.csv')
 def price_csv(ticker: str):
-    path = MARKET_DIR / 'prices' / f'{ticker}.csv'
+    path = PUBLIC_MARKET_DIR / 'prices' / f'{ticker}.csv'
     if not TICKER.match(ticker) or not path.is_file():
         raise HTTPException(404, 'unknown ticker')
     return FileResponse(path, media_type='text/csv')
@@ -105,7 +133,7 @@ def price_csv(ticker: str):
 
 @app.get('/fx_usdcad.csv')
 def fx_csv():
-    path = MARKET_DIR / 'fx_usdcad.csv'
+    path = PUBLIC_MARKET_DIR / 'fx_usdcad.csv'
     if not path.is_file():
         raise HTTPException(404)
     return FileResponse(path, media_type='text/csv')
@@ -126,7 +154,7 @@ def status():
                                                                   fx_due=False, est_seconds=0)
     except Exception as e:
         plan = dict(error=str(e), tickers=[], requests=0, price_due=0, calendar_due=0, fx_due=False, est_seconds=0)
-    return dict(**jobs.snapshot(), plan=plan, history=_history(), exports=store.status(),
+    return dict(**jobs.snapshot(), guest=GUEST_MODE, ephemeral_user_data=GUEST_MODE, plan=plan, history=_history(), exports=store.status(),
                 schedule=dict(times=FETCH_TIMES),
                 limits=dict(request_gap_s=market_data.REQUEST_GAP, rate_limit_pause_s=market_data.RATE_LIMIT_PAUSE,
                             cooldown_s=jobs.FETCH_COOLDOWN_S, closed_refresh_days=market_data.CLOSED_REFRESH_DAYS,

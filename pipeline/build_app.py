@@ -9,7 +9,7 @@ import pandas as pd
 import store
 from ledger import load_activities, holding_rows, build_positions
 from settings import BUILD_DIR
-from prices import DATA, history, ticker_map
+from prices import PRIVATE_DATA, history, ticker_map
 import engine
 
 APP = str(BUILD_DIR)
@@ -260,7 +260,7 @@ def main():
             income[a['effective_date'][:7]][a['activity_type']] += to_cad(float(a['net_cash_amount']), a['currency'], a['effective_date'])
 
     events = []
-    ev_path = os.path.join(DATA, 'events.csv')
+    ev_path = os.path.join(PRIVATE_DATA, 'events.csv')
     if os.path.exists(ev_path):
         events = list(csv.DictReader(open(ev_path)))
 

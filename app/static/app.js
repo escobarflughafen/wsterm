@@ -1189,7 +1189,10 @@ async function pollStatus() {
   return ST;
 }
 function updateFetchUI() {
-  const b = $('#fetch'), rb = $('#rebuild'), info = $('#fetchinfo');
+  const b = $('#fetch'), rb = $('#rebuild'), info = $('#fetchinfo'), guest = $('#guestbadge');
+  guest.hidden = !(ST && ST.guest);
+  guest.textContent = tr('GUEST · EPHEMERAL');
+  guest.title = tr('Uploaded portfolio data is erased when this guest container stops; only public market data persists.');
   if (!ST) { b.disabled = true; b.textContent = tr('OFFLINE'); info.textContent = tr('server not reachable'); return; }
   const j = ST.job, cd = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
   rb.disabled = j.running;

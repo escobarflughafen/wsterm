@@ -30,6 +30,30 @@ def test_everything_else_requires_auth(client):
     assert r.status_code == 200 and 'script-src' in r.headers['content-security-policy']
 
 
+def test_guest_url_token_becomes_cookie_and_cleans_url(client, monkeypatch):
+    monkeypatch.setattr(server, 'GUEST_MODE', True)
+    monkeypatch.setattr(server, 'GUEST_TOKEN', 'guest-secret-token')
+    monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
+    assert client.get('/').status_code == 401
+    assert 'www-authenticate' not in client.get('/').headers
+    assert client.get('/?token=wrong').status_code == 401
+
+    login = client.get('/?token=guest-secret-token&lang=zh', follow_redirects=False)
+    assert login.status_code == 303 and login.headers['location'] == '/?lang=zh'
+    cookie = login.headers['set-cookie']
+    assert 'pt_guest_session=' in cookie and 'HttpOnly' in cookie and 'SameSite=strict' in cookie
+    assert 'guest-secret-token' not in cookie
+    assert client.get('/').status_code == 200
+
+
+def test_guest_mode_ignores_basic_auth(client, monkeypatch):
+    monkeypatch.setattr(server, 'GUEST_MODE', True)
+    monkeypatch.setattr(server, 'GUEST_TOKEN', 'guest-secret-token')
+    monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
+    client.cookies.clear()
+    assert client.get('/', auth=AUTH).status_code == 401
+
+
 def test_posts_need_csrf_header(client):
     assert client.post('/api/rebuild', auth=AUTH).status_code == 403
     assert client.post('/api/rebuild', auth=AUTH, headers=H).status_code == 202

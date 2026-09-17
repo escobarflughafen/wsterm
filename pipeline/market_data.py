@@ -1,12 +1,12 @@
 """Fetch and cache market data for everything in the Wealthsimple exports.
 
-Writes to pipeline/data/:
+Writes public fetch data to PUBLIC_MARKET_DIR and guest/user-derived metadata to MARKET_DIR:
   prices/<ticker>.csv   daily OHLC, Close, Adj Close, Volume (appended incrementally)
   fx_usdcad.csv         Bank of Canada daily USD/CAD
-  tickers.csv           WS symbol -> Yahoo ticker map
+  tickers.csv           WS symbol -> Yahoo ticker map (private MARKET_DIR)
   events.csv            upcoming earnings / ex-dividend dates for current holdings
   fetch_state.json      per-ticker last check, so unchanged data is never re-requested
-  fetch_log.jsonl       one line per run: requests, skips, errors, rate limiting
+  fetch_log.jsonl       one line per run: requests, skips, errors, rate limiting (private MARKET_DIR)
 
 Budget rules (Yahoo publishes no limits, so stay far below anything that trips 429s):
   - a ticker is requested only when a newer session close should exist than the last check
@@ -25,17 +25,18 @@ import pandas as pd
 import yfinance as yf
 
 from ledger import load_activities, load_holdings
-from settings import MARKET_DIR
+from settings import MARKET_DIR, PUBLIC_MARKET_DIR
 
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)  # expected 404s for ETF calendars
 yf.config.debug.hide_exceptions = False  # surface 429s instead of returning empty frames
-(MARKET_DIR / 'yf-cache').mkdir(parents=True, exist_ok=True)
-yf.set_tz_cache_location(str(MARKET_DIR / 'yf-cache'))  # container root filesystem is read-only
+(PUBLIC_MARKET_DIR / 'yf-cache').mkdir(parents=True, exist_ok=True)
+yf.set_tz_cache_location(str(PUBLIC_MARKET_DIR / 'yf-cache'))  # container root filesystem is read-only
 
 DATA = str(MARKET_DIR)
-PRICES = os.path.join(DATA, 'prices')
-STATE = os.path.join(DATA, 'fetch_state.json')
+PUBLIC_DATA = str(PUBLIC_MARKET_DIR)
+PRICES = os.path.join(PUBLIC_DATA, 'prices')
+STATE = os.path.join(PUBLIC_DATA, 'fetch_state.json')
 LOG = os.path.join(DATA, 'fetch_log.jsonl')
 PROGRESS = os.path.join(DATA, 'fetch_progress.json')
 BENCHMARKS = ['XEQT.TO', 'VFV.TO', 'VOO', 'QQQ']
@@ -184,7 +185,7 @@ def fetch_prices(tickers, active, start, state, budget, force):
 
 
 def fetch_fx(start, state, budget):
-    path = os.path.join(DATA, 'fx_usdcad.csv')
+    path = os.path.join(PUBLIC_DATA, 'fx_usdcad.csv')
     st = state.setdefault('FXUSDCAD', {})
     now = dt.datetime.now(dt.timezone.utc)
     if os.path.exists(path) and st.get('checked') and dt.datetime.fromisoformat(st['checked']) >= last_session_close('VOO', now):

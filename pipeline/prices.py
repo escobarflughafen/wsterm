@@ -3,9 +3,10 @@ import functools, os
 
 import pandas as pd
 
-from settings import MARKET_DIR
+from settings import MARKET_DIR, PUBLIC_MARKET_DIR
 
-DATA = str(MARKET_DIR)
+DATA = str(PUBLIC_MARKET_DIR)
+PRIVATE_DATA = str(MARKET_DIR)
 
 
 @functools.lru_cache(maxsize=None)
@@ -16,7 +17,7 @@ def history(ticker):
 
 @functools.lru_cache(maxsize=None)
 def ticker_map():
-    df = pd.read_csv(os.path.join(DATA, 'tickers.csv'), keep_default_na=False)
+    df = pd.read_csv(os.path.join(PRIVATE_DATA, 'tickers.csv'), keep_default_na=False)
     return {(r.ws_symbol, r.currency): r.yahoo or None for r in df.itertuples()}
 
 

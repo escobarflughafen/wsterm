@@ -7,6 +7,9 @@ short- vs long-term comparisons and a hindsight map), and CSV import. English an
 top-right toggle; `h/j/k/l` moves between panel controls, Enter activates, and `:q` exits). Single container, no database, all state in one
 data directory.
 
+`PUBLIC_MARKET_DIR` can split reusable public prices/FX/calendar cache from private ticker mappings, selected events,
+fetch logs, exports, and computed portfolio output. It defaults to `MARKET_DIR`, so existing deployments are unchanged.
+
 ```
 Browser ──HTTPS──► reverse proxy (Caddy/Traefik/nginx) ──► portfolio (FastAPI, 1 worker) ──► /data volume
                                                               │  ├─ exports/  activities.csv, holdings.csv, uploads/, inbox/
@@ -109,6 +112,30 @@ scp activities-export-*.csv holdings-report-*.csv <host>:/tmp/
 ssh <host> 'cd portfolio-terminal && make import FILES="/tmp/activities-export-*.csv /tmp/holdings-report-*.csv"'
 ```
 
+### Token-protected guest instance through Cloudflare Tunnel
+
+The guest overlay runs a second Compose project on `127.0.0.1:8789` without Basic Auth. A high-entropy token in the
+first URL exchanges for a 24-hour Secure, HttpOnly, SameSite cookie, then redirects to remove the token from the
+address bar. Treat the generated link as a password and rotate `GUEST_TOKEN` to revoke every session.
+
+Guest financial data is deliberately non-persistent: exports, original uploads, ticker mappings, computed output,
+job logs and state live under the container's `/guest` tmpfs and disappear whenever that container stops. Only fetched
+public price, FX and calendar cache files are bind-mounted under `DATA_PATH/public-market`. This is one shared guest
+workspace, so deploy a separate instance/token for each mutually untrusted audience.
+
+1. In Cloudflare, create a remotely-managed Tunnel and publish a hostname whose service URL is
+   `http://portfolio:8787`.
+2. On the host, install `deploy/portfolio-terminal-guest-deploy.sh`, then run `init`.
+3. Put the Cloudflare tunnel token in `CLOUDFLARED_TUNNEL_TOKEN` and the public `https://...` hostname in
+   `GUEST_PUBLIC_URL` inside the generated `.env`.
+4. Run `deploy`, then use `link` to print the bearer URL. The script verifies the health endpoint, URL-token exchange,
+   session cookie and Tunnel container.
+
+Cloudflare recommends remotely-managed tunnels for most deployments; the sidecar uses the official token-based
+`cloudflared tunnel --no-autoupdate run` flow. The app disables Uvicorn access logs in guest mode so the initial query
+token is not written to app logs. Cloudflare or upstream request logging should also be configured not to retain query
+strings.
+
 ### Single-host deployment
 
 Prod (`/srv/portfolio-terminal`, :8787, branch `main`) and dev (`~/Workspaces/portfolio-terminal`, :8788, branch `dev`)
@@ -161,6 +188,9 @@ All via environment (`.env`):
 | `MAX_UPLOAD_MB` | `20` | Per-file import limit. |
 | `FETCH_COOLDOWN_S` | `60` | Minimum gap between manual fetches. |
 | `DATA_DIR` | `/data` (container), `./var` (local) | Root of all state; `EXPORTS_DIR`, `MARKET_DIR`, `BUILD_DIR` override parts. |
+| `PUBLIC_MARKET_DIR` | `MARKET_DIR` | Public-only price, FX and fetch/calendar cache; split out for ephemeral guest deployments. |
+| `GUEST_MODE` / `GUEST_TOKEN` | off / — | URL-token guest authentication. Guest mode requires a token of at least 32 characters. |
+| `GUEST_COOKIE_SECURE` / `GUEST_SESSION_HOURS` | `1` / `24` | Secure guest session-cookie policy. |
 
 Portfolio targets, bucket membership and rule thresholds live in `$DATA_DIR/config.json`, seeded from
 `pipeline/config.example.json` on first init. It stays out of git so a public repo carries no personal strategy.
@@ -186,7 +216,7 @@ and a second 429 stops the run with cached data intact. Typical trading day: ~30
 
 ## Security model
 
-- Basic auth on every route except `/healthz`; constant-time comparison.
+- Basic auth on every route except `/healthz`; guest deployments instead use constant-time URL-token/session-cookie checks.
 - CSRF: state-changing requests must carry `X-Requested-With: portfolio` (cross-site forms can't set it).
 - Strict CSP (`script-src 'self'`), `X-Frame-Options: DENY`, `no-referrer`, `nosniff`.
 - Container: non-root UID 10001, read-only root filesystem, `no-new-privileges`, all capabilities dropped, 1 GB memory cap.

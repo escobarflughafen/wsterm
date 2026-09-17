@@ -3,7 +3,7 @@ PY      := .venv/bin/python
 STAMP   := $(shell date +%Y%m%d-%H%M%S)
 COMPOSE := docker compose
 
-.PHONY: help setup dev test test-docker build up down logs shell backup restore import fetch rebuild deploy dev-up
+.PHONY: help setup dev test test-docker build up down logs shell backup restore import fetch rebuild deploy dev-up guest-up guest-down guest-logs
 
 help:            ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -29,6 +29,17 @@ deploy:          ## pull the current branch and rebuild/restart this instance
 dev-up:          ## start this checkout with the dev overlay (live reload, no schedule)
 	@test -f .env || (echo "Create .env first: cp .env.example .env" && exit 1)
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up -d --build && $(COMPOSE) ps
+
+guest-up:        ## start isolated guest instance + Cloudflare Tunnel (uses guest vars in .env)
+	@test -f .env || (echo "Create .env first: cp .env.example .env" && exit 1)
+	COMPOSE_PROJECT_NAME=portfolio-terminal-guest PORT=8789 DATA_PATH=./var/guest-public $(COMPOSE) -f docker-compose.yml -f docker-compose.guest.yml up -d --build
+	COMPOSE_PROJECT_NAME=portfolio-terminal-guest PORT=8789 DATA_PATH=./var/guest-public $(COMPOSE) -f docker-compose.yml -f docker-compose.guest.yml ps
+
+guest-down:      ## stop the guest instance and erase its tmpfs portfolio data
+	COMPOSE_PROJECT_NAME=portfolio-terminal-guest PORT=8789 DATA_PATH=./var/guest-public $(COMPOSE) -f docker-compose.yml -f docker-compose.guest.yml down
+
+guest-logs:      ## follow guest app and Cloudflare Tunnel logs
+	COMPOSE_PROJECT_NAME=portfolio-terminal-guest PORT=8789 DATA_PATH=./var/guest-public $(COMPOSE) -f docker-compose.yml -f docker-compose.guest.yml logs -f --tail=200
 
 up:              ## start (detached)
 	@test -f .env || (echo "Create .env first: cp .env.example .env" && exit 1)

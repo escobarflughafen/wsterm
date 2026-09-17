@@ -2,10 +2,12 @@
 
   DATA_DIR        root for all mutable state (default ./var). Mount this as a volume in production.
   EXPORTS_DIR     Wealthsimple exports: merged masters, upload archive, inbox       (default $DATA_DIR/exports)
-  MARKET_DIR      cached prices, FX, fetch state and logs                           (default $DATA_DIR/market)
+  MARKET_DIR      private market metadata: ticker map, events, logs                  (default $DATA_DIR/market)
+  PUBLIC_MARKET_DIR  public prices, FX and fetch/calendar cache                      (default $MARKET_DIR)
   BUILD_DIR       computed data.json served to the browser                          (default $DATA_DIR/build)
   CONFIG_PATH     targets, buckets, rule thresholds   (default $DATA_DIR/config.json, else pipeline/config.example.json)
   APP_USER / APP_PASSWORD   HTTP Basic auth; required unless ALLOW_NO_AUTH=1
+  GUEST_MODE / GUEST_TOKEN  ephemeral guest workspace authenticated by URL token
   FETCH_TIMES     comma-separated HH:MM (TZ below) for automatic weekday fetches; empty disables
   TZ_NAME         timezone for FETCH_TIMES (default America/Toronto)
   MAX_UPLOAD_MB   per-file import limit (default 20)
@@ -24,6 +26,7 @@ def _path(name, default):
 DATA_DIR = _path('DATA_DIR', ROOT / 'var')
 EXPORTS_DIR = _path('EXPORTS_DIR', DATA_DIR / 'exports')
 MARKET_DIR = _path('MARKET_DIR', DATA_DIR / 'market')
+PUBLIC_MARKET_DIR = _path('PUBLIC_MARKET_DIR', MARKET_DIR)
 BUILD_DIR = _path('BUILD_DIR', DATA_DIR / 'build')
 # Your own targets and buckets live with your data, never in git. The example keeps a fresh clone runnable.
 _user_config = Path(os.environ.get('CONFIG_PATH') or (DATA_DIR / 'config.json'))
@@ -32,10 +35,14 @@ CONFIG_PATH = _user_config if _user_config.exists() else ROOT / 'pipeline' / 'co
 APP_USER = os.environ.get('APP_USER', 'admin')
 APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
 ALLOW_NO_AUTH = os.environ.get('ALLOW_NO_AUTH', '') == '1'
+GUEST_MODE = os.environ.get('GUEST_MODE', '') == '1'
+GUEST_TOKEN = os.environ.get('GUEST_TOKEN', '')
+GUEST_COOKIE_SECURE = os.environ.get('GUEST_COOKIE_SECURE', '1') == '1'
+GUEST_SESSION_HOURS = int(os.environ.get('GUEST_SESSION_HOURS', '24'))
 FETCH_TIMES = [t.strip() for t in os.environ.get('FETCH_TIMES', '').split(',') if t.strip()]
 TZ_NAME = os.environ.get('TZ_NAME', 'America/Toronto')
 MAX_UPLOAD_MB = float(os.environ.get('MAX_UPLOAD_MB', '20'))
 FETCH_COOLDOWN_S = int(os.environ.get('FETCH_COOLDOWN_S', '60'))
 
-for d in (EXPORTS_DIR, MARKET_DIR, BUILD_DIR):
+for d in (EXPORTS_DIR, MARKET_DIR, PUBLIC_MARKET_DIR, BUILD_DIR):
     d.mkdir(parents=True, exist_ok=True)
