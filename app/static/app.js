@@ -159,10 +159,12 @@ function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine =
       const x = X(cur);
       cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
       series.forEach((sr, k) => { const v = sr.values[cur]; if (v == null) return dots[k].setAttribute('visibility', 'hidden'); dots[k].setAttribute('cx', x); dots[k].setAttribute('cy', Y(v)); dots[k].setAttribute('visibility', 'visible'); });
-      tip.replaceChildren(h('div', { class: 'd' }, dates[cur]),
-        ...series.map(sr => h('div', { class: 'r' }, h('i', { style: `background:${sr.color}` }), h('span', {}, sr.name), h('b', {}, sr.values[cur] == null ? '—' : yfmt(sr.values[cur], true)))),
+      tip.replaceChildren(...[h('div', { class: 'd' }, dates[cur]),
+        ...series.map(sr => h('div', { class: 'r' }, h('i', { style: `background:${sr.color}` }), h('span', {}, sr.name),
+          h('b', {}, sr.values[cur] == null ? '—' : yfmt(sr.values[cur], true),
+            sr.alt && sr.alt[cur] != null ? h('span', { class: 'mut' }, `  ${sr.altFmt(sr.alt[cur])}`) : null))),
         onPick && pickLabel ? h('div', { class: 'r' }, h('span', { class: 'amb' }, pickLabel)) : null,
-        ...markers.filter(mk => mk.i === cur).map(mk => h('div', { class: 'r' }, h('span', { class: mk.side === 'BUY' ? 'up' : 'down' }, `${mk.side === 'BUY' ? '▲' : '▼'} ${mk.label}`))));
+        ...markers.filter(mk => mk.i === cur).map(mk => h('div', { class: 'r' }, h('span', { class: mk.side === 'BUY' ? 'up' : 'down' }, `${mk.side === 'BUY' ? '▲' : '▼'} ${mk.label}`)))].filter(Boolean));
       tip.style.display = 'block';
       const tw = tip.offsetWidth, scale = host.clientWidth / W;
       let left = x * scale + 14; if (left + tw > host.clientWidth) left = x * scale - tw - 14;
@@ -288,6 +290,18 @@ const SCREEN = {
         stat('MONEY ADDED', signed(added), 'deposits and transfers in range'),
         stat('INVESTMENT GAIN', signed(change - added), 'balance change minus money added'),
         stat('RETURN', signedPct(twrOf(v, c)), 'time-weighted, money in and out removed'));
+    } else if (state.mode === 'GAIN') {
+      // Money made or lost inside the range: value change minus money put in, so 0 = break even.
+      const dep = P.contrib.slice(i0), base = dep[0];
+      const gainOf = arr => { const a = arr.slice(i0), v0 = a[0]; return a.map((v, k) => (v - v0) - (dep[k] - base)); };
+      const rebaseTwr = arr => { const a = arr.slice(i0), b = a[0]; return a.map(v => v / b - 1); };
+      series = [
+        { name: invested ? 'INVESTED GAIN' : 'YOUR GAIN', short: 'YOU', color: 'var(--s1)', values: gainOf(P.total),
+          alt: rebaseTwr(P.twr), altFmt: v => pct(v, 2) },
+        ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} WITH THE SAME MONEY`, short: b.replace('.TO', ''),
+          color: BENCH_COLOR[b], values: gainOf(x.value), alt: rebaseTwr(x.twr), altFmt: v => pct(v, 2) })),
+      ];
+      yfmt = (v, full) => full ? money(v) : Math.abs(v) >= 1000 ? (v < 0 ? '-$' : '$') + nf0.format(Math.round(Math.abs(v) / 1000)) + 'K' : money(v);
     } else if (state.mode === 'VALUE') {
       series = [
         { name: invested ? 'INVESTED (NO CASH)' : 'PORTFOLIO', short: 'YOU', color: 'var(--s1)', values: P.total.slice(i0) },
@@ -298,9 +312,13 @@ const SCREEN = {
       yfmt = ((f) => (v, full) => full ? money(v) : f(v))(yfmt);
     } else {
       const rebase = arr => { const a = arr.slice(i0), b = a[0]; return a.map(v => v / b - 1); };
+      const dep2 = P.contrib.slice(i0), base2 = dep2[0];
+      const gainOf2 = arr => { const a = arr.slice(i0), v0 = a[0]; return a.map((v, k) => (v - v0) - (dep2[k] - base2)); };
       series = [
-        { name: invested ? 'INVESTED MONEY (TIME-WEIGHTED)' : 'PORTFOLIO (TIME-WEIGHTED)', short: 'YOU', color: 'var(--s1)', values: rebase(P.twr) },
-        ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} TOTAL RETURN (CAD)`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: rebase(x.twr) })),
+        { name: invested ? 'INVESTED MONEY (TIME-WEIGHTED)' : 'PORTFOLIO (TIME-WEIGHTED)', short: 'YOU', color: 'var(--s1)',
+          values: rebase(P.twr), alt: gainOf2(P.total), altFmt: v => money(v, 2) },
+        ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} TOTAL RETURN (CAD)`, short: b.replace('.TO', ''),
+          color: BENCH_COLOR[b], values: rebase(x.twr), alt: gainOf2(x.value), altFmt: v => money(v, 2) })),
       ];
       yfmt = (v, full) => (v * 100).toFixed(full ? 2 : 0) + '%';
     }
@@ -317,7 +335,7 @@ const SCREEN = {
         const bv = slice(x.value), bt = slice(x.twr);
         return { short: b.replace('.TO', ''), gain: last(bv) - bv[0] - added, ret: last(bt) / bt[0] - 1 };
       });
-      if (state.mode === 'VALUE') {
+      if (state.mode !== 'RETURN') {
         statsEl = h('div', { class: 'stats' },
           stat(invested ? 'CAPITAL DEPLOYED' : 'MONEY ADDED', signed(added), invested ? 'net buys of risk assets in range' : 'deposits minus withdrawals in range'),
           stat('BALANCE CHANGE', signed(last(val) - val[0]), invested ? 'invested value change' : 'portfolio value change'),
@@ -333,20 +351,26 @@ const SCREEN = {
       h('select', { 'aria-label': 'Account', onchange: e => { state.acct = e.target.value; render(); } },
         ['ALL', ...D.accounts.map(a => a.acct)].map(a => h('option', { value: a, selected: a === acct }, a.toUpperCase()))),
       h('span', { style: 'width:10px' }),
-      ...(acct === 'ALL' ? seg(['VALUE', 'RETURN'], state.mode, m => { state.mode = m; render(); }) : []),
+      ...(acct === 'ALL' ? seg(['VALUE', 'GAIN', 'RETURN'], state.mode, m => { state.mode = m; render(); }) : []),
       h('span', { style: 'width:10px' }),
       ...(acct === 'ALL' && sr.invested ? seg(['INVESTED', 'ALL MONEY'], state.basis, b => { state.basis = b; render(); }) : []),
       h('span', { style: 'width:10px' }),
       ...seg(['1M', '3M', '6M', 'YTD', '1Y', 'ALL'], state.range, r => { state.range = r; render(); }),
     ];
-    const note = acct !== 'ALL' ? 'Account value in CAD, including cash.'
-      : invested
-        ? 'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality. This compares your picks with XEQT on equal terms.'
-        : state.mode === 'VALUE'
-          ? 'Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested) — including money you parked in cash ETFs, which is why they can lead. Switch to INVESTED for a like-for-like comparison.'
-          : 'Returns rebased to 0% at the range start. Early months are noisy because balances were small.';
+    const notes = [];
+    if (acct !== 'ALL') notes.push('Account value in CAD, including cash.');
+    else {
+      if (state.mode === 'GAIN') notes.push('Money made or lost since the range start, deposits removed: 0 is break even. Hover shows the time-weighted rate beside each amount.');
+      else if (state.mode === 'RETURN') notes.push('Time-weighted returns rebased to 0% at the range start; hover shows what each rate is worth in CAD.');
+      else notes.push('Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested).');
+      notes.push(invested
+        ? 'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality.'
+        : 'ALL MONEY includes what you parked in cash ETFs, which is why a benchmark can lead. Switch to INVESTED for a like-for-like comparison.');
+    }
+    const note = notes.join(' ');
     return [panel('PERFORMANCE', `${dates[0]} → ${dates[dates.length - 1]}`, ctl, statsEl,
-      h('div', { class: 'body' }, lineChart({ dates, series, yfmt, height: 340 })), h('div', { class: 'body mut' }, note))];
+      h('div', { class: 'body' }, lineChart({ dates, series, yfmt, height: 340, zeroLine: state.mode !== 'VALUE' })),
+      h('div', { class: 'body mut' }, note))];
   },
 
   PNL() {
