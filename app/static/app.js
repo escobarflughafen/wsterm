@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
 function saveSel() { try { localStorage.setItem('sim-exclude', JSON.stringify([...state.simSel])); } catch {} }
@@ -408,6 +408,7 @@ const SCREEN = {
         stat('INVESTED', money(inv), `${pct(inv / total)} of total`),
         ...Object.keys(A.targets).map(k => stat(k.toUpperCase(), pct((now[k] || 0) / inv), `target ${pct(A.targets[k], 0)} of invested`))),
       panel('INVESTED MIX VS TARGET', 'bar = now · white tick = target · $ = amount over (+) or under (−) target', null, h('div', { class: 'body alloc' }, rows)),
+      contributionsPanel(),
       panel('BY ACCOUNT', 'CAD', null, table([
         { k: 'acct', label: 'ACCOUNT', l: true },
         ...cats.map(c => ({ k: c, label: c.toUpperCase(), fmt: r => r[c] ? money(r[c]) : h('span', { class: 'mut' }, '—') })),
@@ -769,6 +770,43 @@ async function commitImport() {
   await pollStatus(); render();
   if (data.job) await waitForJob(data.job === 'import-fetch' ? 'Imported · fetching prices for new symbols…' : 'Imported · rebuilding…', 'import');
   else await load();
+}
+
+// ---------- monthly contributions into the equity core ----------
+function contributionsPanel() {
+  const C = D.contributions;
+  if (!C || !C.months.length) return null;
+  const n = state.contribMonths === 'ALL' ? C.months.length : Math.min(C.months.length, +state.contribMonths);
+  const cut = C.months.length - n;
+  const months = C.months.slice(cut);
+  const dates = months.map(m => `${m}-01`);
+  const colors = ['var(--s1)', 'var(--s2)', 'var(--s3)'];
+  const series = Object.entries(C.groups).slice(0, 3).map(([name, vals], i) => ({
+    name, short: name.replace(' 500', '').replace(' 100', ''), color: colors[i], values: vals.slice(cut),
+  }));
+  const P = C.core_pace, trend = P.last3 != null && P.prev3 != null ? P.last3 - P.prev3 : null;
+  const stats = h('div', { class: 'stats' },
+    stat('CORE BUYS / MONTH', money(P.last6), h('span', {}, 'last 6 months · 3M ', signed(trend), ' vs previous 3M')),
+    stat('RUN RATE', money(P.run_rate), 'last 6 months × 12'),
+    stat('INVESTED IN CORE', money(P.total), `${C.months.length} months tracked`),
+    ...Object.entries(C.group_pace).slice(0, 3).map(([name, p]) => stat(name, money(p.last6), h('span', {}, 'per month · ', signed(p.last3 - p.prev3), ' vs prev 3M'))),
+    stat('MONTHS WITHOUT A BUY', `${P.skipped_last6}/6`, P.skipped_last6 ? 'gaps break the habit' : 'bought every month'));
+  const ctl = seg(['6', '12', '24', 'ALL'], state.contribMonths, m => { state.contribMonths = m; render(); });
+  return h('div', {},
+    panel('CORE CONTRIBUTIONS', 'net buys per month (buys minus sells), equivalent tickers grouped: VOO+VFV, QQQ+XQQ, XEQT', ctl,
+      stats,
+      h('div', { class: 'body' }, lineChart({ dates, series, height: 260, zeroLine: true,
+        yfmt: (v, full) => full ? money(v) : v >= 1000 || v <= -1000 ? '$' + nf0.format(Math.round(v / 1000)) + 'K' : money(v) })),
+      table([
+        { k: 'sym', label: 'TICKER', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
+        { k: 'group', label: 'TRACKS', l: true, sm: false },
+        { k: 'cad', label: 'NET INVESTED', fmt: r => money(r.cad) },
+        { k: 'shares', label: 'NET SHARES', fmt: r => +r.shares.toFixed(2) },
+        { k: 'avg_cost', label: 'NET COST/SHARE', sm: false, fmt: r => r.avg_cost == null ? '—' : num(r.avg_cost) },
+        { k: 'held', label: 'HELD NOW', fmt: r => +r.held.toFixed(2) },
+        { k: 'last', label: 'LAST 6 MO', sort: r => r.monthly.slice(-6).reduce((a, b) => a + b, 0),
+          fmt: r => money(r.monthly.slice(-6).reduce((a, b) => a + b, 0)) },
+      ], C.tickers, { sortKey: 'cad' })));
 }
 
 // ---------- freeze (stop trading) simulation ----------

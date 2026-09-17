@@ -5,17 +5,58 @@
     "speculative": 0.03
   },
   "categories": {
-    "core": ["VOO", "QQQ", "VFV", "XEQT", "XQQ", "QQQI", "ALLW"],
-    "cash": ["CCAD", "TCSH", "CBIL"],
-    "speculative": ["NVDU", "TSMX", "MUU", "USD", "SOXS", "DRAM", "KWEB", "URA", "JETS", "GOU", "IBIT"]
+    "core": [
+      "VOO",
+      "QQQ",
+      "VFV",
+      "XEQT",
+      "XQQ",
+      "QQQI",
+      "ALLW"
+    ],
+    "cash": [
+      "CCAD",
+      "TCSH",
+      "CBIL"
+    ],
+    "speculative": [
+      "NVDU",
+      "TSMX",
+      "MUU",
+      "USD",
+      "SOXS",
+      "DRAM",
+      "KWEB",
+      "URA",
+      "JETS",
+      "GOU",
+      "IBIT"
+    ]
   },
   "rules": {
     "max_single_stock_pct": 0.04,
     "max_speculative_pct_of_invested": 0.03,
     "review_drawdown_pct": -0.15,
     "max_tfsa_trades_per_month": 20,
-    "averaging_down_lookback_days": 90
+    "averaging_down_lookback_days": 90,
+    "require_monthly_core_buy": true
   },
-  "benchmarks": ["XEQT.TO", "VOO"],
-  "cash_etf": "CCAD.TO"
+  "benchmarks": [
+    "XEQT.TO",
+    "VOO"
+  ],
+  "cash_etf": "CCAD.TO",
+  "equivalents": {
+    "S&P 500": [
+      "VOO",
+      "VFV"
+    ],
+    "NASDAQ 100": [
+      "QQQ",
+      "XQQ"
+    ],
+    "ALL-WORLD": [
+      "XEQT"
+    ]
+  }
 }

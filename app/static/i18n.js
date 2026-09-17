@@ -72,6 +72,14 @@ const ZH = {
   'bar = now · white tick = target · $ = amount over (+) or under (−) target': '条形 = 当前 · 白线 = 目标 · $ = 高于（+）或低于（−）目标的金额',
   'BY ACCOUNT': '按账户',
 
+  'CORE CONTRIBUTIONS': '核心定投', 'CORE BUYS / MONTH': '每月核心买入', 'RUN RATE': '年化投入', 'INVESTED IN CORE': '核心累计投入',
+  'MONTHS WITHOUT A BUY': '未买入的月份', 'gaps break the habit': '中断会破坏习惯', 'bought every month': '每月都有买入',
+  'last 6 months · 3M ': '近 6 个月 · 近 3 个月 ', ' vs previous 3M': ' 对比前 3 个月', 'per month · ': '每月 · ', ' vs prev 3M': ' 对比前 3 个月',
+  'last 6 months × 12': '近 6 个月 × 12', 'TRACKS': '跟踪', 'NET INVESTED': '净投入', 'NET SHARES': '净份额',
+  'NET COST/SHARE': '每份净成本', 'HELD NOW': '当前持有', 'LAST 6 MO': '近 6 个月', 'TICKER': '代码',
+  'net buys per month (buys minus sells), equivalent tickers grouped: VOO+VFV, QQQ+XQQ, XEQT': '每月净买入（买入减卖出），等价标的已合并：VOO+VFV、QQQ+XQQ、XEQT',
+  'CORE ETF PURCHASE EVERY MONTH': '每月买入核心 ETF', 'S&P 500': '标普 500', 'NASDAQ 100': '纳斯达克 100', 'ALL-WORLD': '全球市场',
+
   // RULE
   'CHECKS': '检查项', 'edit thresholds in pipeline/config.json': '在 pipeline/config.json 中修改阈值', '✓ PASS': '✓ 通过', '✕ FAIL': '✕ 未通过',
   'All positions within limit': '所有持仓均在限额内', 'Clean': '无', 'None below threshold': '没有低于阈值的持仓',
@@ -210,6 +218,7 @@ const ZH_PATTERNS = [
   [/^NO AVERAGING DOWN \(LAST (\d+)D\)$/, '不摊低成本（近 $1 天）'], [/^TFSA TRADES ≤ (\d+)\/MONTH$/, 'TFSA 每月交易 ≤ $1 笔'],
   [/^(\d+) over limit$/, '$1 个超限'], [/^Now (.+)$/, '当前 $1'], [/^(\d+) held$/, '持有 $1 个'], [/^(\d+) need a decision$/, '$1 个需要决定'],
   [/^(\d+) buys below average cost$/, '$1 笔低于平均成本的买入'], [/^(\d{4}-\d{2}): (\d+) trades$/, '$1：$2 笔交易'],
+  [/^last 6 months: (\d)\/6 with a purchase$/, '近 6 个月：$1/6 个月有买入'], [/^(\d+) months tracked$/, '已跟踪 $1 个月'],
 
   // import (server)
   [/^Older than current holdings \((.+)\); will be skipped unless forced$/, '早于当前持仓（$1）；除非强制，否则跳过'],

@@ -153,6 +153,56 @@ def main():
                            avgdown=bool(q > 0 and avg_before and price < avg_before * 0.98
                                         and category(sym, acct) in ('stocks', 'speculative'))))
 
+    # ---------- monthly contributions into the equity core ----------
+    groups = CFG.get('equivalents', {})
+    tracked = sorted({sym for syms in groups.values() for sym in syms} | set(CFG['categories']['core']))
+    months = sorted({a['effective_date'][:7] for a in acts})
+    contrib_cad = {sym: collections.defaultdict(float) for sym in tracked}
+    contrib_sh = {sym: collections.defaultdict(float) for sym in tracked}
+    totals = collections.defaultdict(lambda: dict(cad=0.0, shares=0.0, buys=0))
+    for a in acts:
+        sym = a['symbol']
+        if a['activity_type'] != 'Trade' or sym not in contrib_cad:
+            continue
+        m, q = a['effective_date'][:7], float(a['quantity'])
+        cad = to_cad(-float(a['net_cash_amount']), a['currency'], a['effective_date'])  # buys positive
+        contrib_cad[sym][m] += cad
+        contrib_sh[sym][m] += q
+        t = totals[sym]
+        t['cad'] += cad
+        t['shares'] += q
+        t['buys'] += q > 0
+
+    def pace(values):
+        """values: list aligned to `months`. Averages over calendar months, not just months with a purchase."""
+        def avg(window):
+            return round(sum(window) / len(window), 2) if window else None
+        last3, prev3, last6, prev6 = values[-3:], values[-6:-3], values[-6:], values[-12:-6]
+        active = [v for v in values if abs(v) > 1]
+        return dict(total=round(sum(values), 2), last3=avg(last3), prev3=avg(prev3), last6=avg(last6), prev6=avg(prev6),
+                    run_rate=round(sum(last6) / max(1, len(last6)) * 12, 2), months=len(values),
+                    active_months=len(active), skipped_last6=sum(1 for v in last6 if abs(v) <= 1),
+                    average=round(sum(values) / len(values), 2) if values else 0)
+
+    group_series, group_pace = {}, {}
+    for name, syms in groups.items():
+        vals = [round(sum(contrib_cad[sym].get(m, 0.0) for sym in syms if sym in contrib_cad), 2) for m in months]
+        group_series[name] = vals
+        group_pace[name] = pace(vals)
+    core_vals = [round(sum(contrib_cad[sym].get(m, 0.0) for sym in tracked), 2) for m in months]
+    holdings_qty = collections.defaultdict(float)
+    for row in rows:
+        holdings_qty[row['sym']] += row['qty'] or 0
+    contributions = dict(
+        months=months, groups=group_series, group_pace=group_pace, core=core_vals, core_pace=pace(core_vals),
+        tickers=[dict(sym=sym, group=next((g for g, syms in groups.items() if sym in syms), '—'),
+                      cad=r2(totals[sym]['cad']), shares=round(totals[sym]['shares'], 4), buys=totals[sym]['buys'],
+                      avg_cost=r2(totals[sym]['cad'] / totals[sym]['shares']) if totals[sym]['shares'] > 0 else None,
+                      held=round(holdings_qty.get(sym, 0), 4),
+                      monthly=[r2(contrib_cad[sym].get(m, 0.0)) for m in months])
+                 for sym in tracked if abs(totals[sym]['cad']) > 1],
+    )
+
     # ---------- allocation & rules ----------
     alloc = collections.defaultdict(float)
     for row in rows:
@@ -179,6 +229,12 @@ def main():
     cutoff = (today - dt.timedelta(days=R['averaging_down_lookback_days'])).isoformat()
     ad = [f"{t['date']} {t['acct']} {t['sym']} {t['qty']:g} @ {t['px']:g}" for t in trades if t['avgdown'] and t['date'] >= cutoff]
     rule(f"NO AVERAGING DOWN (LAST {R['averaging_down_lookback_days']}D)", not ad, f'{len(ad)} buys below average cost', ad[-15:])
+    if CFG['rules'].get('require_monthly_core_buy'):
+        recent = contributions['months'][-6:]
+        missed = [m for m, v in zip(contributions['months'], contributions['core'])][-6:]
+        missed = [m for m, v in zip(recent, contributions['core'][-6:]) if abs(v) <= 1]
+        rule('CORE ETF PURCHASE EVERY MONTH', not missed, f"last 6 months: {6 - len(missed)}/6 with a purchase", missed)
+
     month = today.strftime('%Y-%m')
     tfsa_m = collections.Counter(t['date'][:7] for t in trades if t['acct'] == 'TFSA')
     rule(f"TFSA TRADES ≤ {R['max_tfsa_trades_per_month']}/MONTH", tfsa_m[month] <= R['max_tfsa_trades_per_month'],
@@ -228,6 +284,7 @@ def main():
         alloc=dict(now={k: r2(v) for k, v in alloc.items()}, invested=r2(invested), targets=CFG['targets']),
         rules=rules,
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
+        contributions=contributions,
         events=events,
     )
     os.makedirs(APP, exist_ok=True)
