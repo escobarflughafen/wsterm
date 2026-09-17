@@ -184,8 +184,8 @@ const ZH = {
   // IMP
   'ACTIVITY ROWS': '交易记录行数', 'nothing imported yet': '尚未导入', 'HOLDINGS AS OF': '持仓截至', 'latest holdings report': '最新持仓报告',
   'UPLOADS ARCHIVED': '已归档上传', 'originals kept, never modified': '保留原始文件，从不修改', 'IMPORT EXPORTS': '导入导出文件',
-  'HOLDINGS REPORT REQUIRED': '需要持仓报告', 'activities are saved, but portfolio panes cannot be built yet': '交易记录已保存，但尚无法生成投资组合面板',
-  'Upload a holdings-report CSV as well. Re-uploading the activities export only adds duplicates and will not unlock the portfolio panes.': '还需要上传持仓报告 CSV。重复上传交易记录只会产生重复项，无法解锁投资组合面板。',
+  'ACTIVITY-DERIVED HOLDINGS': '根据交易记录推算持仓', 'portfolio panes use transactions plus latest Yahoo prices': '投资组合面板使用交易记录及 Yahoo 最新价格',
+  'Estimated mode: open quantities, cash and cost basis are reconstructed from the activity ledger. A holdings report is optional and can later verify the snapshot.': '估算模式：根据完整交易流水重建当前数量、现金及成本基础。持仓报告为可选项，之后可用于核对快照。',
   'Wealthsimple activities export and holdings report, the same CSV formats as before': 'Wealthsimple 交易记录导出和持仓报告，与之前相同的 CSV 格式',
   'DROP CSV EXPORTS HERE': '将 CSV 导出文件拖到这里', 'CHECKING FILES…': '正在检查文件…',
   'or click to choose · activities export and/or holdings report · up to 10 files': '或点击选择 · 交易记录导出和/或持仓报告 · 最多 10 个文件',

@@ -24,7 +24,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yfinance as yf
 
-from ledger import load_activities, load_holdings
+import store
+from ledger import build_positions, load_activities, load_holdings
 from settings import MARKET_DIR, PUBLIC_MARKET_DIR
 
 
@@ -261,9 +262,14 @@ def fetch_events(tickers, state, budget, force):
 
 def load_universe():
     acts = load_activities()
-    holdings = load_holdings()
     tmap = build_ticker_map(acts)
-    held = {tmap.get((k[1], k[2])) for k in holdings} - {None}
+    if store.HOLDINGS.exists():
+        holdings = load_holdings()
+        held = {tmap.get((k[1], k[2])) for k in holdings} - {None}
+    else:
+        # A full activity export is enough to estimate today's open positions.
+        held = {tmap.get((sym, cur)) for (_acct, sym, cur), p in build_positions(acts).items()
+                if p['q'] > 1e-9} - {None}
     tickers = {t for t in tmap.values() if t} | set(BENCHMARKS)
     return acts, tmap, held, tickers, held | set(BENCHMARKS)
 

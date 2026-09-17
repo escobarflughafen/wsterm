@@ -35,10 +35,10 @@ def r2(x):
 
 def main():
     if not store.has_data():
-        print('no exports imported yet: upload activities + holdings CSVs first')
+        print('no activities imported yet: upload an activities CSV first')
         raise SystemExit(3)
     acts = load_activities()
-    hold_rows = holding_rows()
+    hold_rows = holding_rows() if store.has_holdings() else []
     tmap = ticker_map()
     cal = engine.Calendar(acts[0]['effective_date'])
     fx_now, to_cad = cal.fx_now, cal.to_cad
@@ -74,6 +74,9 @@ def main():
     )
 
     # ---------- current holdings ----------
+    # Prefer Wealthsimple's snapshot when present. Otherwise reconstruct the
+    # current positions and cash from the complete activity ledger and value
+    # securities at Yahoo's latest close.
     rows, acct_val = [], collections.defaultdict(float)
     for h in hold_rows:
         acct, sym, cur = h['Account Type'], h['Symbol'], h['Market Value Currency']
@@ -94,12 +97,48 @@ def main():
                          px=px, mv=r2(q * px), mv_cad=r2(mv_cad), upl=r2(q * px - book),
                          upl_pct=round((q * px / book - 1), 4) if book else None,
                          day_pct=None if day is None else round(float(day), 4)))
+    pos = build_positions(acts)
+    if not hold_rows:
+        names = {}
+        for a in acts:
+            if a['symbol']:
+                names.setdefault((a['symbol'], a['currency']), a.get('name') or
+                                 (a['description'].split(' - ', 1)[1].split(':')[0].strip()
+                                  if ' - ' in a['description'] else a['symbol']))
+        for (acct, sym, cur), p in pos.items():
+            q = float(p['q'])
+            if q <= 1e-9:
+                continue
+            t = None if is_option(sym) else tmap.get((sym, cur))
+            px = day = None
+            if t:
+                closes = history(t)['Close']
+                if len(closes):
+                    px = float(closes.iloc[-1])
+                if len(closes) > 1:
+                    day = float(closes.iloc[-1] / closes.iloc[-2] - 1)
+            if px is None:
+                px = float(p['cost']) / q if q else 0.0
+            mv = q * px
+            mv_cad = to_cad(mv, cur)
+            book = float(p['cost'])
+            acct_val[acct] += mv_cad
+            rows.append(dict(acct=acct, sym=sym, name=names.get((sym, cur), sym), cat=category(sym, acct), cur=cur,
+                             qty=q, avg=r2(book / q), px=r2(px), mv=r2(mv), mv_cad=r2(mv_cad),
+                             upl=r2(mv - book), upl_pct=round(mv / book - 1, 4) if book else None,
+                             day_pct=None if day is None else round(day, 4)))
+        for (acct, cur), amount in base['cash'].items():
+            if abs(amount) <= 0.005:
+                continue
+            mv_cad = to_cad(amount, cur)
+            acct_val[acct] += mv_cad
+            rows.append(dict(acct=acct, sym=f'{cur} CASH', name='Cash', cat='cash', cur=cur, qty=None, avg=None,
+                             px=None, mv=r2(amount), mv_cad=r2(mv_cad), upl=0, upl_pct=None, day_pct=None))
     total_now = sum(acct_val.values())
     for row in rows:
-        row['weight'] = round(row['mv_cad'] / total_now, 4)
+        row['weight'] = round(row['mv_cad'] / total_now, 4) if total_now else 0
 
     # ---------- realized P&L ----------
-    pos = build_positions(acts)
     positions = []
     for (acct, sym, cur), p in pos.items():
         if not p['buys'] and not p['sells']:
@@ -275,7 +314,9 @@ def main():
 
     data = dict(
         tickers=tickers,
-        asof=(store.holdings_asof() or '').replace('T', ' '),
+        asof=((store.holdings_asof() or '').replace('T', ' ') if hold_rows else
+              f"{acts[-1]['effective_date']} · ESTIMATED FROM ACTIVITIES"),
+        holdings_source='report' if hold_rows else 'activities',
         built=dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
         price_date=series['dates'][-1], fx=fx_now,
         summary=dict(total=r2(total_now), contrib=r2(contrib_now), gain=r2(total_now - contrib_now),
@@ -285,7 +326,7 @@ def main():
                      twr=round(float(twr.iloc[-1] - 1), 4),
                      bench={b: dict(value=r2(bench[b]['value'].iloc[-1]), twr=round(float(bench[b]['twr'].iloc[-1] - 1), 4)) for b in bench}),
         accounts=[dict(acct=a, value=r2(acct_val[a]), contrib=r2(flows[a].iloc[-1]), gain=r2(acct_val[a] - flows[a].iloc[-1]),
-                       weight=round(acct_val[a] / total_now, 4)) for a in accounts],
+                       weight=round(acct_val[a] / total_now, 4) if total_now else 0) for a in accounts],
         holdings=sorted(rows, key=lambda x: -x['mv_cad']),
         series=series,
         positions=sorted(positions, key=lambda x: x['realized_cad']),

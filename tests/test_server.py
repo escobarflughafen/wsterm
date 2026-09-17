@@ -83,20 +83,19 @@ def test_partial_import_waits_for_other_required_export(client, fixture_bytes):
                     json=dict(id=p.json()['id'], fetch=True))
     assert c.status_code == 200
     body = c.json()
-    assert body['ok'] and body['job'] is None
+    assert body['ok'] and body['job'] == 'import-fetch'
     assert body['missing_exports'] == ['holdings']
-    assert 'Upload the holdings export' in body['log']
-    assert client.started == []
+    assert body['estimated_holdings']
+    assert client.started == ['import-fetch']
 
 
-def test_rebuild_rejects_incomplete_import(client, fixture_bytes):
+def test_rebuild_accepts_activity_only_import(client, fixture_bytes):
     store_preview = client.post('/api/import/preview', auth=AUTH, headers=H,
                                 files=[('files', fixture_bytes('activities_jan.csv'))]).json()
     client.post('/api/import/commit', auth=AUTH, headers=H, json=dict(id=store_preview['id'], fetch=False))
     r = client.post('/api/rebuild', auth=AUTH, headers=H)
-    assert r.status_code == 409
-    assert r.json()['log'] == 'Upload the holdings export first'
-    assert client.started == []
+    assert r.status_code == 202
+    assert client.started == ['rebuild', 'rebuild']
 
 
 def test_end_guest_session_erases_private_data_and_cookie(client, monkeypatch, fixture_bytes):

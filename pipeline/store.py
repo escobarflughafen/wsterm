@@ -179,7 +179,12 @@ def holdings_asof():
 
 
 def has_data():
-    return ACTIVITIES.exists() and HOLDINGS.exists()
+    """Activities are sufficient to build an estimated portfolio; holdings are an optional current snapshot."""
+    return ACTIVITIES.exists()
+
+
+def has_holdings():
+    return HOLDINGS.exists()
 
 
 def missing_exports():

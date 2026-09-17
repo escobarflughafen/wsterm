@@ -45,3 +45,11 @@ def test_ticker_map_handles_symbols_that_already_carry_an_exchange():
     acts = [dict(activity_type='Trade', symbol='RY.TO', currency='CAD', description='RY.TO - Royal Bank of Canada', account_type='Non-registered'),
             dict(activity_type='Trade', symbol='XEQT', currency='CAD', description='XEQT - iShares Core Equity ETF Portfolio', account_type='TFSA')]
     assert m.build_ticker_map(acts) == {('RY.TO', 'CAD'): 'RY.TO', ('XEQT', 'CAD'): 'XEQT.TO'}
+
+
+def test_activity_only_universe_marks_reconstructed_positions_held(fixture_bytes):
+    import store
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv')])['id'])
+    _acts, tmap, held, tickers, active = m.load_universe()
+    assert tmap[('VOO', 'USD')] == 'VOO'
+    assert 'VOO' in held and 'VOO' in tickers and 'VOO' in active

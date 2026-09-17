@@ -47,3 +47,20 @@ def test_rrsp_flows_through_the_whole_build(fixture_bytes, synthetic_market):
     assert 'RRSP' in d['series']['accounts'] and 'RRSP' in d['series']['account_contrib']
     registered = next(r for r in d['rules'] if 'REGISTERED ACCOUNTS' in r['name'])
     assert 'RRSP' in registered['detail']          # the rule checks it, not just the TFSA
+
+
+def test_activity_only_build_derives_current_holdings(fixture_bytes, synthetic_market):
+    import json
+    import build_app
+    from settings import BUILD_DIR
+
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv')])['id'])
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+
+    assert d['holdings_source'] == 'activities'
+    assert 'ESTIMATED FROM ACTIVITIES' in d['asof']
+    voo = next(h for h in d['holdings'] if h['sym'] == 'VOO')
+    cash = next(h for h in d['holdings'] if h['sym'] == 'USD CASH')
+    assert (voo['acct'], voo['qty'], voo['px'], voo['mv']) == ('RRSP', 3.0, 640.0, 1920.0)
+    assert cash['mv'] == 400.0

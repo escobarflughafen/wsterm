@@ -687,8 +687,8 @@ const SCREEN = {
       panel('IMPORT EXPORTS', 'Wealthsimple activities export and holdings report, the same CSV formats as before', null, h('div', { class: 'body' }, zone)),
     ];
     if (E && E.activities.rows && !E.holdings_asof) out.splice(1, 0,
-      panel('HOLDINGS REPORT REQUIRED', 'activities are saved, but portfolio panes cannot be built yet', null,
-        h('div', { class: 'body warn' }, 'Upload a holdings-report CSV as well. Re-uploading the activities export only adds duplicates and will not unlock the portfolio panes.')));
+      panel('ACTIVITY-DERIVED HOLDINGS', 'portfolio panes use transactions plus latest Yahoo prices', null,
+        h('div', { class: 'body warn' }, 'Estimated mode: open quantities, cash and cost basis are reconstructed from the activity ledger. A holdings report is optional and can later verify the snapshot.')));
     if (P) {
       const needsForce = P.files.some(f => f.warnings.some(w => w.startsWith('Older than current holdings')));
       out.push(
@@ -872,7 +872,7 @@ async function commitImport() {
   state.imp.preview = null; state.imp.result = data;
   await pollStatus(); render();
   if (data.job) await waitForJob(data.job === 'import-fetch' ? 'Imported · fetching prices for new symbols…' : 'Imported · rebuilding…', 'import');
-  else if (data.missing_exports && data.missing_exports.length) {
+  else if (data.missing_exports && data.missing_exports.includes('activities')) {
     msg(`IMPORT SAVED · upload ${data.missing_exports.join(' and ')} CSV to continue`);
     render();
   } else await load();
@@ -1202,7 +1202,7 @@ function updateFetchUI() {
   guest.title = tr('Uploaded portfolio data is erased when this guest container stops; only public market data persists.');
   if (!ST) { b.disabled = true; b.textContent = tr('OFFLINE'); info.textContent = tr('server not reachable'); return; }
   const j = ST.job, cd = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
-  const complete = Boolean(ST.exports.activities.rows && ST.exports.holdings_asof);
+  const complete = Boolean(ST.exports.activities.rows);
   rb.disabled = j.running || !complete;
   if (j.running) {
     b.disabled = true;

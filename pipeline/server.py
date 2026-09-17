@@ -222,11 +222,11 @@ def import_commit(body: Commit):
     log.info('import committed: +%s rows, holdings_updated=%s', result['added'], result['holdings_updated'])
     missing = store.missing_exports()
     result['missing_exports'] = missing
-    if missing:
-        # A first-time import may contain only one of Wealthsimple's two exports.
-        # Keep it, but do not start jobs that require both master CSVs.
+    result['estimated_holdings'] = 'holdings' in missing and 'activities' not in missing
+    if 'activities' in missing:
+        # A holdings snapshot cannot produce transaction history by itself.
         result['job'] = None
-        result['log'] = f"Saved. Upload the {' and '.join(missing)} export to build the portfolio."
+        result['log'] = 'Saved. Upload the activities export to build the portfolio.'
         return dict(ok=True, **result)
     kind = 'import-fetch' if body.fetch and result['new_symbols'] else 'rebuild'
     try:
