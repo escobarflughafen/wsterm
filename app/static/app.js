@@ -686,6 +686,9 @@ const SCREEN = {
         stat('UPLOADS ARCHIVED', E ? nf0.format(E.uploads) : '—', E && E.inbox ? h('span', { class: 'warn' }, `${E.inbox} waiting in inbox`) : 'originals kept, never modified')),
       panel('IMPORT EXPORTS', 'Wealthsimple activities export and holdings report, the same CSV formats as before', null, h('div', { class: 'body' }, zone)),
     ];
+    if (E && E.activities.rows && !E.holdings_asof) out.splice(1, 0,
+      panel('HOLDINGS REPORT REQUIRED', 'activities are saved, but portfolio panes cannot be built yet', null,
+        h('div', { class: 'body warn' }, 'Upload a holdings-report CSV as well. Re-uploading the activities export only adds duplicates and will not unlock the portfolio panes.')));
     if (P) {
       const needsForce = P.files.some(f => f.warnings.some(w => w.startsWith('Older than current holdings')));
       out.push(
@@ -1192,19 +1195,21 @@ async function pollStatus() {
   return ST;
 }
 function updateFetchUI() {
-  const b = $('#fetch'), rb = $('#rebuild'), info = $('#fetchinfo'), guest = $('#guestbadge');
+  const b = $('#fetch'), rb = $('#rebuild'), info = $('#fetchinfo'), guest = $('#guestbadge'), end = $('#endsession');
   guest.hidden = !(ST && ST.guest);
+  end.hidden = !(ST && ST.guest);
   guest.textContent = tr('GUEST · EPHEMERAL');
   guest.title = tr('Uploaded portfolio data is erased when this guest container stops; only public market data persists.');
   if (!ST) { b.disabled = true; b.textContent = tr('OFFLINE'); info.textContent = tr('server not reachable'); return; }
   const j = ST.job, cd = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
-  rb.disabled = j.running;
+  const complete = Boolean(ST.exports.activities.rows && ST.exports.holdings_asof);
+  rb.disabled = j.running || !complete;
   if (j.running) {
     b.disabled = true;
     const p = ST.progress;
     b.textContent = tr(j.kind === 'rebuild' ? 'REBUILDING…' : p ? `FETCHING ${p.requests}/${p.planned ?? '?'}` : `FETCHING… ${Math.round(j.elapsed)}s`);
   } else if (cd > 0) { b.disabled = true; b.textContent = tr(`FETCH ${cd}s`); }
-  else if (!ST.exports.activities.rows) { b.disabled = true; b.textContent = tr('FETCH · NO DATA'); }
+  else if (!complete) { b.disabled = true; b.textContent = tr(ST.exports.activities.rows ? 'FETCH · NEED HOLDINGS' : 'FETCH · NO DATA'); }
   else { b.disabled = false; b.textContent = tr(ST.plan.requests ? `FETCH · ${ST.plan.requests} DUE` : 'FETCH · UP TO DATE'); }
   const last = ST.history[0];
   info.replaceChildren(last ? h('span', {}, `LAST FETCH ${ago(last.started)} · ${last.requests} REQ · ${last.seconds}s`,
@@ -1240,6 +1245,12 @@ $('#fetch').addEventListener('click', () => startJob('fetch'));
 $('#rebuild').addEventListener('click', () => startJob('rebuild'));
 $('#fetchinfo').addEventListener('click', () => go('DATA'));
 $('#vimbtn').addEventListener('click', () => setVimMode(!vimMode));
+$('#endsession').addEventListener('click', async () => {
+  if (!confirm(tr('End this guest session and permanently erase all uploaded portfolio data? Public market prices will remain cached.'))) return;
+  const { data } = await api('/api/session/end', { method: 'POST' });
+  if (!data.ok) return msg(data.log || 'Could not end guest session');
+  location.replace('/');
+});
 setInterval(() => { if (cooldownUntil > Date.now()) updateFetchUI(); }, 1000);
 setInterval(() => { if (!ST || !ST.job.running) pollStatus().then(() => state.screen === 'DATA' && rerenderKeepScroll()); }, 60000);
 let vimGAt = 0;

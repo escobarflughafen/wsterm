@@ -3,7 +3,7 @@
 Dev:   .venv/bin/uvicorn --app-dir pipeline server:app --reload   (set ALLOW_NO_AUTH=1 for local use without a password)
 Prod:  see Dockerfile / docker-compose.yml. Run exactly one worker: jobs and the scheduler live in-process.
 """
-import base64, contextlib, hashlib, hmac, json, logging, re, secrets, threading, time
+import base64, contextlib, hashlib, hmac, json, logging, re, secrets, shutil, threading, time
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -11,10 +11,11 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-import engine, freeze, jobs, market_data, store
+import engine, freeze, jobs, market_data, prices, store
 from ledger import load_activities
-from settings import (ALLOW_NO_AUTH, APP_PASSWORD, APP_USER, BUILD_DIR, FETCH_TIMES, GUEST_COOKIE_SECURE, GUEST_MODE,
-                      GUEST_SESSION_HOURS, GUEST_TOKEN, MARKET_DIR, MAX_UPLOAD_MB, PUBLIC_MARKET_DIR, STATIC_DIR)
+from settings import (ALLOW_NO_AUTH, APP_PASSWORD, APP_USER, BUILD_DIR, DATA_DIR, EXPORTS_DIR, FETCH_TIMES,
+                      GUEST_COOKIE_SECURE, GUEST_MODE, GUEST_SESSION_HOURS, GUEST_TOKEN, MARKET_DIR, MAX_UPLOAD_MB,
+                      PUBLIC_MARKET_DIR, STATIC_DIR)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 log = logging.getLogger('portfolio')
@@ -180,6 +181,8 @@ def fetch(force: bool = False):
 
 @app.post('/api/rebuild')
 def rebuild():
+    if not store.has_data():
+        return JSONResponse(dict(ok=False, log=f"Upload the {' and '.join(store.missing_exports())} export first"), 409)
     return _start('rebuild')
 
 
@@ -232,6 +235,31 @@ def import_commit(body: Commit):
     except jobs.Busy:
         result['job'] = None
     return dict(ok=True, **result)
+
+
+@app.post('/api/session/end')
+def end_guest_session():
+    """Immediately erase guest-owned portfolio state; the public market cache is deliberately retained."""
+    if not GUEST_MODE:
+        raise HTTPException(404)
+    if jobs.snapshot()['job']['running']:
+        return JSONResponse(dict(ok=False, log='A job is running; end the session when it finishes'), 409)
+    root = DATA_DIR.resolve()
+    private = tuple(dict.fromkeys(path.resolve() for path in (EXPORTS_DIR, MARKET_DIR, BUILD_DIR)))
+    if any(path == root or not path.is_relative_to(root) for path in private):
+        log.error('refusing unsafe guest cleanup outside %s: %s', root, private)
+        return JSONResponse(dict(ok=False, log='Guest storage configuration is unsafe; nothing was erased'), 500)
+    for path in private:
+        shutil.rmtree(path, ignore_errors=True)
+        path.mkdir(parents=True, exist_ok=True)
+    for fn in (prices.history, prices.ticker_map, prices.fx_usdcad):
+        fn.cache_clear()
+    with _freeze_lock:
+        _freeze_cache.update(key=None, ctx=None, sweep=None)
+    response = JSONResponse(dict(ok=True, erased=True))
+    response.delete_cookie(GUEST_COOKIE, path='/', secure=GUEST_COOKIE_SECURE, httponly=True, samesite='strict')
+    log.info('guest session ended: private portfolio state erased')
+    return response
 
 
 # ------------------------------------------------------------------ simulate

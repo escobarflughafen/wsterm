@@ -56,7 +56,7 @@ def test_guest_mode_ignores_basic_auth(client, monkeypatch):
 
 def test_posts_need_csrf_header(client):
     assert client.post('/api/rebuild', auth=AUTH).status_code == 403
-    assert client.post('/api/rebuild', auth=AUTH, headers=H).status_code == 202
+    assert client.post('/api/rebuild', auth=AUTH, headers=H).status_code == 409
 
 
 def test_price_route_rejects_traversal(client):
@@ -87,6 +87,34 @@ def test_partial_import_waits_for_other_required_export(client, fixture_bytes):
     assert body['missing_exports'] == ['holdings']
     assert 'Upload the holdings export' in body['log']
     assert client.started == []
+
+
+def test_rebuild_rejects_incomplete_import(client, fixture_bytes):
+    store_preview = client.post('/api/import/preview', auth=AUTH, headers=H,
+                                files=[('files', fixture_bytes('activities_jan.csv'))]).json()
+    client.post('/api/import/commit', auth=AUTH, headers=H, json=dict(id=store_preview['id'], fetch=False))
+    r = client.post('/api/rebuild', auth=AUTH, headers=H)
+    assert r.status_code == 409
+    assert r.json()['log'] == 'Upload the holdings export first'
+    assert client.started == []
+
+
+def test_end_guest_session_erases_private_data_and_cookie(client, monkeypatch, fixture_bytes):
+    import server
+    monkeypatch.setattr(server, 'GUEST_MODE', True)
+    monkeypatch.setattr(server, 'GUEST_TOKEN', 'guest-secret-token')
+    monkeypatch.setattr(server, 'GUEST_COOKIE_SECURE', False)
+    login = client.get('/?token=guest-secret-token', follow_redirects=False)
+    assert login.status_code == 303
+    preview = client.post('/api/import/preview', headers=H,
+                          files=[('files', fixture_bytes('activities_jan.csv'))]).json()
+    client.post('/api/import/commit', headers=H, json=dict(id=preview['id'], fetch=False))
+
+    r = client.post('/api/session/end', headers=H)
+    assert r.status_code == 200 and r.json()['erased']
+    assert 'pt_guest_session=""' in r.headers['set-cookie']
+    assert not server.store.ACTIVITIES.exists()
+    assert client.get('/').status_code == 401
 
 
 def test_upload_size_limit(client, monkeypatch):

@@ -43,6 +43,7 @@ a { color: var(--amber); }
 #vimbtn { border: 1px solid var(--axis); padding: 0 6px; }
 #vimbtn[aria-pressed="true"] { border-color: var(--amber); background: var(--amber); color: #000; font-weight: 700; }
 #guestbadge { border: 1px solid var(--amber); color: var(--amber); padding: 0 6px; font-weight: 700; }
+#endsession { border: 1px solid var(--down); color: var(--down); padding: 0 6px; font-weight: 700; }
 .warn { color: var(--amber); }
 .cmd { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .cmd label { color: var(--amber); }
