@@ -8,6 +8,7 @@
 #   portfolio-terminal-deploy.sh seed-dev               copy prod data into dev (dev restarted)
 #   portfolio-terminal-deploy.sh promote                fast-forward main to what dev runs, then deploy prod
 #   portfolio-terminal-deploy.sh logs   <prod|dev>
+#   portfolio-terminal-deploy.sh self-update            install this script from the repo's main branch
 #
 # Instances:  prod = /srv/portfolio-terminal/app  branch main  port 8787  scheduled fetch 17:20 ET
 #             dev  = ~/Workspaces/portfolio-terminal branch dev port 8788  live reload, no schedule
@@ -117,6 +118,7 @@ wait_healthy() {
     state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || echo missing)
     [ "$state" = healthy ] && return 0
     [ "$state" = unhealthy ] && break
+    if [ "$(docker inspect -f '{{.RestartCount}}' "$name" 2>/dev/null || echo 0)" -gt 0 ]; then state="crash-looping"; break; fi
     sleep 3; waited=$((waited + 3))
   done
   bad "container $name is $state after ${waited}s"
@@ -167,6 +169,7 @@ cmd_deploy() {
 
   section "Source"
   local prev; prev=$(git -C "$dir" rev-parse HEAD)
+  local prev_branch; prev_branch=$(git -C "$dir" symbolic-ref --short -q HEAD || true)
   git -C "$dir" fetch -q origin
   if [ "$ref" = "origin/${BRANCH[$inst]}" ]; then
     git -C "$dir" checkout -q "${BRANCH[$inst]}"
@@ -196,7 +199,7 @@ cmd_deploy() {
   section "Rollback"
   bad "verification failed; restoring $(git -C "$dir" rev-parse --short "$prev")"
   compose "$inst" logs --tail 40 || true
-  git -C "$dir" checkout -q --detach "$prev"
+  if [ -n "$prev_branch" ]; then git -C "$dir" checkout -q -B "$prev_branch" "$prev"; else git -C "$dir" checkout -q --detach "$prev"; fi
   export TAG="${inst}-$(git -C "$dir" rev-parse --short HEAD)"
   compose "$inst" build -q && compose "$inst" up -d
   if wait_healthy "$inst" && verify "$inst"; then
@@ -258,6 +261,14 @@ cmd_survey() {
 
 cmd_logs() { local inst; inst=$(instance "${1:-}"); compose "$inst" logs -f --tail 200; }
 
+cmd_self_update() {
+  local target; target=$(readlink -f "$0")
+  git --git-dir="$REPO" show main:deploy/portfolio-terminal-deploy.sh > "${target}.new"
+  bash -n "${target}.new" || { rm -f "${target}.new"; die "new script has syntax errors; kept current version"; }
+  chmod 755 "${target}.new" && mv "${target}.new" "$target"
+  ok "installed $(git --git-dir="$REPO" log -1 --format=%h main -- deploy/portfolio-terminal-deploy.sh) → $target"
+}
+
 case "${1:-}" in
   survey)   cmd_survey ;;
   init)     cmd_init "${2:-}" ;;
@@ -266,5 +277,6 @@ case "${1:-}" in
   seed-dev) cmd_seed_dev ;;
   promote)  cmd_promote ;;
   logs)     cmd_logs "${2:-}" ;;
-  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  self-update) cmd_self_update ;;
+  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
