@@ -869,7 +869,10 @@ async function commitImport() {
   state.imp.preview = null; state.imp.result = data;
   await pollStatus(); render();
   if (data.job) await waitForJob(data.job === 'import-fetch' ? 'Imported · fetching prices for new symbols…' : 'Imported · rebuilding…', 'import');
-  else await load();
+  else if (data.missing_exports && data.missing_exports.length) {
+    msg(`IMPORT SAVED · upload ${data.missing_exports.join(' and ')} CSV to continue`);
+    render();
+  } else await load();
 }
 
 // ---------- monthly contributions into the equity core ----------

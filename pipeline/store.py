@@ -182,6 +182,11 @@ def has_data():
     return ACTIVITIES.exists() and HOLDINGS.exists()
 
 
+def missing_exports():
+    """Required master exports that have not been imported yet."""
+    return [name for name, path in (('activities', ACTIVITIES), ('holdings', HOLDINGS)) if not path.exists()]
+
+
 def summarize_activities(rows):
     if not rows:
         return dict(rows=0)

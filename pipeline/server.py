@@ -217,6 +217,14 @@ def import_commit(body: Commit):
     except store.ImportError_ as e:
         return JSONResponse(dict(ok=False, log=str(e)), 400)
     log.info('import committed: +%s rows, holdings_updated=%s', result['added'], result['holdings_updated'])
+    missing = store.missing_exports()
+    result['missing_exports'] = missing
+    if missing:
+        # A first-time import may contain only one of Wealthsimple's two exports.
+        # Keep it, but do not start jobs that require both master CSVs.
+        result['job'] = None
+        result['log'] = f"Saved. Upload the {' and '.join(missing)} export to build the portfolio."
+        return dict(ok=True, **result)
     kind = 'import-fetch' if body.fetch and result['new_symbols'] else 'rebuild'
     try:
         jobs.start(kind, trigger='import')

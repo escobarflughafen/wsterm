@@ -75,6 +75,20 @@ def test_upload_preview_and_commit(client, fixture_bytes):
     assert client.get('/api/status', auth=AUTH).json()['exports']['activities']['rows'] == 4
 
 
+def test_partial_import_waits_for_other_required_export(client, fixture_bytes):
+    p = client.post('/api/import/preview', auth=AUTH, headers=H,
+                    files=[('files', fixture_bytes('activities_jan.csv'))])
+    assert p.status_code == 200
+    c = client.post('/api/import/commit', auth=AUTH, headers=H,
+                    json=dict(id=p.json()['id'], fetch=True))
+    assert c.status_code == 200
+    body = c.json()
+    assert body['ok'] and body['job'] is None
+    assert body['missing_exports'] == ['holdings']
+    assert 'Upload the holdings export' in body['log']
+    assert client.started == []
+
+
 def test_upload_size_limit(client, monkeypatch):
     monkeypatch.setattr(server, 'MAX_UPLOAD_MB', 0.0001)
     r = client.post('/api/import/preview', auth=AUTH, headers=H, files=[('files', ('big.csv', b'x' * 1000))])
