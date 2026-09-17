@@ -81,14 +81,17 @@ verify() {
   [ -n "$cookie" ] || die 'token exchange did not set a session cookie'
   [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "http://127.0.0.1:$PORT/")" = 200 ] || die 'guest session cookie failed'
   [ "$(docker inspect -f '{{.State.Status}}' portfolio-terminal-guest-tunnel 2>/dev/null)" = running ] || die 'cloudflared is not running'
-  local url waited=0
-  while [ "$waited" -lt 60 ]; do
+  local url code=000 waited=0
+  while [ "$waited" -lt 90 ]; do
     url=$(public_url || true)
-    [ -n "$url" ] && break
+    if [ -n "$url" ]; then
+      code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$url/healthz" || true)
+      [ "$code" = 200 ] && break
+    fi
     sleep 2; waited=$((waited + 2))
   done
   [ -n "$url" ] || die 'cloudflared did not publish a Quick Tunnel URL'
-  [ "$(curl -s -o /dev/null -w '%{http_code}' "$url/healthz")" = 200 ] || die 'public tunnel health check failed'
+  [ "$code" = 200 ] || die "public tunnel health check returned $code after ${waited}s"
   ok "guest auth, app health, and Quick Tunnel verified at $url"
 }
 
