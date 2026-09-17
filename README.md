@@ -45,7 +45,7 @@ The app starts empty and says so. Three ways to fill it:
 
 | Source | How |
 |---|---|
-| Your own exports | Open the app → **IMP** screen → drop `activities-export-*.csv` and `holdings-report-*.csv` → preview → commit. Prices for new symbols are fetched automatically. |
+| Your own exports | Open the app → **IMP** screen → drop `activities-export-*.csv` and `holdings-report-*.csv` → preview → commit. Prices for new symbols are fetched automatically. The same screen carries an illustrated three-step guide to producing those files in Wealthsimple (`app/static/img/guide-*.png`). |
 | A copy of another instance | `rsync -a <other>/data/ ./data/` (or `~/Maintenances/portfolio-terminal-deploy.sh seed-dev` on the host) |
 | Nothing real | `tests/fixtures/*.csv` are small synthetic exports; import them the same way. |
 

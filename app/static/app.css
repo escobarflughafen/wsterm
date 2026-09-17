@@ -196,3 +196,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px s
 /* ---- Chinese ---- */
 :lang(zh-CN) .panel > h2, :lang(zh-CN) .stat .l, :lang(zh-CN) th, :lang(zh-CN) .fkeys button { letter-spacing: 0; }
 #langbtn { padding: 0 6px; border: 1px solid var(--axis); }
+
+/* ---- export guide ---- */
+.guide { display: grid; gap: 14px; padding: 8px; }
+.guide figure { margin: 0; display: grid; gap: 8px; }
+.guide figcaption { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: start; }
+.guide figcaption .step { grid-row: span 2; width: 22px; height: 22px; border-radius: 50%; background: var(--amber); color: #000;
+  font-weight: 700; display: grid; place-items: center; font-size: 12px; }
+.guide figcaption ul { grid-column: 2; }
+.guide ul.plain { font-family: var(--sans); color: var(--ink2); display: grid; gap: 4px; }
+.guide ul.plain li { white-space: normal; }
+.guide img { width: 100%; max-width: 900px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }

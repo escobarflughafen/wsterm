@@ -160,6 +160,18 @@ const ZH = {
   'Yahoo Finance (unofficial, via yfinance) for prices + calendars; Bank of Canada Valet for USD/CAD. Both free, no API key.': '价格和日历来自 Yahoo Finance（非官方，通过 yfinance）；美元/加元汇率来自加拿大银行 Valet。均免费，无需 API 密钥。',
   '$0. The real constraint is Yahoo throttling: it publishes no limit and answers bursts with HTTP 429.': '$0。真正的限制是 Yahoo 限流：它不公布限额，请求过密时返回 HTTP 429。',
 
+  'HOW TO EXPORT FROM WEALTHSIMPLE': '如何从 Wealthsimple 导出', 'activities CSV in three steps · same file you drop above': '三步导出交易记录 CSV · 就是上方拖入的文件',
+  'Open Activity and start the export': '打开 Activity 并开始导出', 'Choose the period': '选择时间范围', 'Pick the accounts and download': '选择账户并下载',
+  'In the Wealthsimple web app, click the clock icon in the left rail to open **Activity**.': '在 Wealthsimple 网页版中，点击左侧栏的时钟图标打开 **Activity**（活动）。',
+  'Click **Download activities** above the transaction list.': '点击交易列表上方的 **Download activities**（下载活动）。',
+  'Set **Select period** to *Custom period*.': '将 **Select period**（选择期间）设为 *Custom period*（自定义期间）。',
+  '**Start date**: a date before your first trade — 2000-01-01 is a safe catch-all. Full history is what lets the app compute cost basis; a partial range still imports and merges.': '**Start date**（开始日期）：早于你第一笔交易的日期——2000-01-01 最保险。完整历史才能算出成本基础；部分区间也可导入并合并。',
+  'Leave **End date** as today, then **Next**.': '**End date**（结束日期）保持今天，然后点 **Next**（下一步）。',
+  'Tick **All accounts** so every account lands in one file (TFSA, FHSA, RRSP, Non-registered, Crypto).': '勾选 **All accounts**（全部账户），让所有账户导出到一个文件（TFSA、FHSA、RRSP、非注册、加密货币）。',
+  'Expand **Closed / Archived** if you once held accounts that are now closed — their trades still affect your history.': '如果曾有已关闭的账户，请展开 **Closed / Archived**（已关闭/归档）——这些交易仍会影响历史。',
+  '**Download CSV**, then drop the file above. Do the same for your holdings report so positions can be checked against the ledger.': '点击 **Download CSV**，然后把文件拖到上方。持仓报告也请同样导出，以便与账本核对持仓。',
+  'Exports overlap safely: rows you already have are skipped, so a monthly full-history export is the simplest routine.': '导出区间重叠没问题：已有的记录会被跳过，因此每月导出一次完整历史是最省心的做法。',
+
   // IMP
   'ACTIVITY ROWS': '交易记录行数', 'nothing imported yet': '尚未导入', 'HOLDINGS AS OF': '持仓截至', 'latest holdings report': '最新持仓报告',
   'UPLOADS ARCHIVED': '已归档上传', 'originals kept, never modified': '保留原始文件，从不修改', 'IMPORT EXPORTS': '导入导出文件',

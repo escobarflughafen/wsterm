@@ -659,6 +659,7 @@ const SCREEN = {
 
   IMP() {
     const E = ST && ST.exports, P = state.imp.preview, busy = state.imp.busy;
+    if (!ST) pollStatus().then(() => state.screen === 'IMP' && rerenderKeepScroll());
     const input = h('input', { type: 'file', accept: '.csv,text/csv', multiple: true, id: 'impfile', class: 'visually-hidden',
       onchange: e => uploadFiles([...e.target.files]) });
     const zone = h('label', { for: 'impfile', class: 'drop' + (busy ? ' busy' : ''), tabindex: 0,
@@ -707,6 +708,7 @@ const SCREEN = {
         h('div', {}, h('span', { class: 'up' }, '✓ '), `+${nf0.format(R.added)} activity rows · ${nf0.format(R.duplicates)} duplicates skipped · holdings ${R.holdings_updated ? 'updated' : 'unchanged'} · ${R.job ? R.job.toUpperCase() + ' started' : 'no rebuild'}`),
         h('div', { class: 'mut' }, `Archived: ${R.archived.join(', ')}`))));
     }
+    out.push(exportGuide());
     out.push(panel('OTHER WAYS IN', null, null, h('div', { class: 'tw help' }, h('table', {}, h('tbody', {},
       h('tr', {}, h('td', { class: 'amb' }, 'INBOX'), h('td', { style: 'white-space:normal' }, 'Copy CSVs into exports/inbox/ on the server (scp, Syncthing…). They are imported within 5 minutes or on REBUILD; rejected files move to inbox/rejected/.')),
       h('tr', {}, h('td', { class: 'amb' }, 'CLI'), h('td', { style: 'white-space:normal' }, 'docker compose exec portfolio python pipeline/store.py /data/exports/inbox/<file>.csv')))))));
@@ -801,6 +803,34 @@ function scheduleSim() {
       if (state.screen === 'SIM') { const y = window.scrollY; render(); window.scrollTo(0, y); }
     } catch (e) { msg(`SIMULATION FAILED: ${e.message}`); }
   }, 350);
+}
+
+// ---------- how to export from Wealthsimple ----------
+const EXPORT_STEPS = [
+  { img: 'guide-1-activity.png', title: 'Open Activity and start the export',
+    lines: ['In the Wealthsimple web app, click the clock icon in the left rail to open **Activity**.',
+            'Click **Download activities** above the transaction list.'] },
+  { img: 'guide-2-period.png', title: 'Choose the period',
+    lines: ['Set **Select period** to *Custom period*.',
+            '**Start date**: a date before your first trade — 2000-01-01 is a safe catch-all. Full history is what lets the app compute cost basis; a partial range still imports and merges.',
+            'Leave **End date** as today, then **Next**.'] },
+  { img: 'guide-3-accounts.png', title: 'Pick the accounts and download',
+    lines: ['Tick **All accounts** so every account lands in one file (TFSA, FHSA, RRSP, Non-registered, Crypto).',
+            'Expand **Closed / Archived** if you once held accounts that are now closed — their trades still affect your history.',
+            '**Download CSV**, then drop the file above. Do the same for your holdings report so positions can be checked against the ledger.'] },
+];
+function exportGuide() {
+  const bold = text => {
+    const out = [];
+    text.split(/\*\*(.+?)\*\*/g).forEach((part, i) => out.push(i % 2 ? h('b', { class: 'amb' }, part) : part));
+    return out;
+  };
+  return panel('HOW TO EXPORT FROM WEALTHSIMPLE', 'activities CSV in three steps · same file you drop above', null,
+    h('div', { class: 'guide' }, EXPORT_STEPS.map((step, i) => h('figure', {},
+      h('figcaption', {}, h('span', { class: 'step' }, i + 1), h('span', { class: 'amb' }, step.title),
+        h('ul', { class: 'plain' }, step.lines.map(l => h('li', {}, bold(l))))),
+      h('img', { src: `/static/img/${step.img}`, alt: step.title, loading: 'lazy' })))),
+    h('div', { class: 'body mut' }, 'Exports overlap safely: rows you already have are skipped, so a monthly full-history export is the simplest routine.'));
 }
 
 // ---------- import ----------
