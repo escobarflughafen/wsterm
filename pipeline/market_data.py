@@ -41,6 +41,7 @@ PROGRESS = os.path.join(DATA, 'fetch_progress.json')
 BENCHMARKS = ['XEQT.TO', 'VFV.TO', 'VOO', 'QQQ']
 TSX_SUFFIX = '.TO'
 CDR_SUFFIX = '.NE'  # CDRs trade on Cboe Canada
+EXCHANGE_SUFFIXES = ('.TO', '.V', '.NE', '.CN')  # some exports already carry one (e.g. RY.TO)
 CRYPTO = {'BTC', 'ETH', 'DOGE', 'SHIB', 'SOL', 'XRP', 'ADA', 'LTC'}
 REQUEST_GAP = 0.35          # seconds between network calls
 RATE_LIMIT_PAUSE = 20       # seconds to wait after the first 429
@@ -65,6 +66,8 @@ def yahoo_ticker(symbol, currency, description, account):
         return None
     if currency == 'USD':
         return symbol.replace('.', '-')
+    if symbol.upper().endswith(EXCHANGE_SUFFIXES):
+        return symbol.upper()  # already qualified by the export
     if 'CDR' in description:
         return symbol + CDR_SUFFIX
     return None  # CAD, non-CDR: decided below

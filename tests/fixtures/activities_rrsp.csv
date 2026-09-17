@@ -1,0 +1,4 @@
+effective_date,effective_time,settlement_date,account_id,account_type,activity_type,activity_sub_type,description,direction,symbol,underlying symbol,name,currency,quantity,unit_price,commission,net_cash_amount
+2026-01-05,09:00:00,,RRSP1CAD,RRSP,MoneyMovement,EFT,Deposit,,,,,USD,2000,,,2000
+2026-01-07,10:00:00,2026-01-08,RRSP1CAD,RRSP,Trade,BUY,VOO - Vanguard S&P 500 ETF: Bought 2.0000 shares,LONG,VOO,VOO,Vanguard S&P 500 ETF,USD,2,505,0,-1010
+2026-02-09,10:00:00,2026-02-10,RRSP1CAD,RRSP,Trade,BUY,VOO - Vanguard S&P 500 ETF: Bought 1.0000 shares,LONG,VOO,VOO,Vanguard S&P 500 ETF,USD,1,590,0,-590

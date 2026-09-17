@@ -34,3 +34,14 @@ def test_closed_positions_refresh_weekly_or_on_their_weekday():
 def test_force_always_fetches():
     st = dict(checked=dt.datetime.now(dt.timezone.utc).isoformat(), last='2026-09-16')
     assert m.needs_fetch('VOO', st, dt.datetime.now(dt.timezone.utc), active=True, force=True)
+
+
+def test_ticker_map_handles_symbols_that_already_carry_an_exchange():
+    # Wealthsimple writes some TSX symbols qualified (RY.TO) and some bare (XEQT); both must map cleanly.
+    assert m.yahoo_ticker('RY.TO', 'CAD', 'RY.TO - Royal Bank of Canada: Bought', 'Non-registered') == 'RY.TO'
+    assert m.yahoo_ticker('GOOG', 'CAD', 'GOOG - Alphabet CDR (CAD Hedged)', 'TFSA') == 'GOOG.NE'
+    assert m.yahoo_ticker('NVDA', 'USD', 'NVDA - NVIDIA Corp', 'TFSA') == 'NVDA'
+    assert m.yahoo_ticker('BTC', 'CAD', 'Purchase of BTC', 'Crypto') == 'BTC-CAD'
+    acts = [dict(activity_type='Trade', symbol='RY.TO', currency='CAD', description='RY.TO - Royal Bank of Canada', account_type='Non-registered'),
+            dict(activity_type='Trade', symbol='XEQT', currency='CAD', description='XEQT - iShares Core Equity ETF Portfolio', account_type='TFSA')]
+    assert m.build_ticker_map(acts) == {('RY.TO', 'CAD'): 'RY.TO', ('XEQT', 'CAD'): 'XEQT.TO'}

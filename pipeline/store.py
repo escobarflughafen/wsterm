@@ -40,6 +40,21 @@ class ImportError_(ValueError):
     pass
 
 
+def safe_name(name, fallback):
+    """Uploads name files; we only ever keep a basename of [A-Za-z0-9._-]. '../../etc/passwd' becomes 'passwd'."""
+    base = Path(str(name or '')).name
+    cleaned = re.sub(r'[^A-Za-z0-9._-]+', '_', base).lstrip('.')[:80]
+    return cleaned or fallback
+
+
+def inside(base: Path, path: Path) -> Path:
+    """Defence in depth: every write must resolve inside the exports store."""
+    resolved = Path(path).resolve()
+    if not resolved.is_relative_to(Path(base).resolve()):
+        raise ImportError_(f'Refusing to write outside the exports directory: {path}')
+    return resolved
+
+
 def _text(raw: bytes) -> str:
     for enc in ('utf-8-sig', 'cp1252'):
         try:
@@ -218,7 +233,7 @@ def preview(files):
     current_asof = holdings_asof()
     report, incoming_acts, holdings_pick = [], [], None
     for i, (name, raw) in enumerate(files):
-        safe = re.sub(r'[^A-Za-z0-9._-]+', '_', Path(name or f'upload{i}.csv').name)[:80]
+        safe = safe_name(name, f'upload{i}.csv')
         entry = dict(file=safe, kind=None, ok=False, errors=[], warnings=[])
         try:
             text = _text(raw)
@@ -247,7 +262,7 @@ def preview(files):
                 entry['errors'].append('Not a Wealthsimple activities export or holdings report (header does not match)')
             entry['ok'] = kind is not None and not entry['errors']
             if entry['ok']:
-                (stage / f'{i:02d}-{safe}').write_bytes(raw)
+                inside(EXPORTS_DIR, stage / f'{i:02d}-{safe}').write_bytes(raw)
         except ImportError_ as e:
             entry['errors'].append(str(e))
         report.append(entry)
@@ -291,7 +306,7 @@ def commit(pid, force_holdings=False):
             rows, asof, errors = parse_holdings(text, f.name)
             if not errors and (holdings_pick is None or (asof or '9') > (holdings_pick[1] or '')):
                 holdings_pick = (text, asof)
-        dest = UPLOADS / f'{stamp}-{f.name[3:]}'
+        dest = inside(EXPORTS_DIR, UPLOADS / f'{stamp}-{safe_name(f.name[3:], "upload.csv")}')
         shutil.copy2(f, dest)
         archived.append(dest.name)
     merged, added, dupes = merge_activities(existing, incoming)
@@ -317,7 +332,7 @@ def process_inbox():
     if not INBOX.exists():
         INBOX.mkdir(parents=True, exist_ok=True)
         return None
-    files = sorted(INBOX.glob('*.csv'))
+    files = sorted(f for f in INBOX.glob('*.csv') if f.is_file() and not f.is_symlink())  # never follow links
     if not files:
         return None
     summary = preview([(f.name, f.read_bytes()) for f in files])
@@ -329,7 +344,7 @@ def process_inbox():
             f.unlink()
         else:
             rejected.mkdir(exist_ok=True)
-            f.replace(rejected / f.name)
+            f.replace(inside(EXPORTS_DIR, rejected / safe_name(f.name, 'rejected.csv')))
     return result
 
 

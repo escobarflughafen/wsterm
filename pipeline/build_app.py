@@ -222,8 +222,13 @@ def main():
     spec_pct = alloc['speculative'] / invested if invested else 0
     rule(f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],
          f'Now {spec_pct:.1%}', [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['cat'] == 'speculative'])
-    lev_tfsa = [f"{x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['acct'] == 'TFSA' and x['cat'] == 'speculative']
-    rule('NO LEVERAGED/THEMATIC ETFS IN TFSA', not lev_tfsa, 'Clean' if not lev_tfsa else f'{len(lev_tfsa)} held', lev_tfsa)
+    # Registered accounts (TFSA, FHSA, RRSP...): a loss there is permanent and cannot be claimed, so the same
+    # guardrails apply to every one of them, not just the TFSA.
+    registered = set(CFG.get('registered_accounts', ['TFSA']))
+    present = [a for a in sorted({r['acct'] for r in rows}) if a in registered]
+    lev_reg = [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['acct'] in registered and x['cat'] == 'speculative']
+    rule('NO LEVERAGED/THEMATIC ETFS IN REGISTERED ACCOUNTS', not lev_reg,
+         ('Clean' if not lev_reg else f'{len(lev_reg)} held') + (f" · checking {', '.join(present)}" if present else ''), lev_reg)
     dd = [f"{x['acct']} {x['sym']} {x['upl_pct']:+.1%}" for x in rows
           if x['upl_pct'] is not None and x['upl_pct'] <= R['review_drawdown_pct'] and x['cat'] != 'cash']
     rule(f"REVIEW POSITIONS ≤ {R['review_drawdown_pct']:.0%}", not dd, 'None below threshold' if not dd else f'{len(dd)} need a decision', dd)
@@ -237,9 +242,16 @@ def main():
         rule('CORE ETF PURCHASE EVERY MONTH', not missed, f"last 6 months: {6 - len(missed)}/6 with a purchase", missed)
 
     month = today.strftime('%Y-%m')
-    tfsa_m = collections.Counter(t['date'][:7] for t in trades if t['acct'] == 'TFSA')
-    rule(f"TFSA TRADES ≤ {R['max_tfsa_trades_per_month']}/MONTH", tfsa_m[month] <= R['max_tfsa_trades_per_month'],
-         f'{month}: {tfsa_m[month]} trades', [f'{m}: {n}' for m, n in sorted(tfsa_m.items())[-6:]])
+    cap = R.get('max_trades_per_month_registered', R.get('max_tfsa_trades_per_month', 20))
+    per_acct = collections.defaultdict(collections.Counter)
+    for t in trades:
+        if t['acct'] in registered:
+            per_acct[t['acct']][t['date'][:7]] += 1
+    over = [f'{a} {month}: {c[month]} trades' for a, c in sorted(per_acct.items()) if c[month] > cap]
+    recent = [f'{a} {m}: {n}' for a, c in sorted(per_acct.items()) for m, n in sorted(c.items())[-3:]]
+    rule(f'REGISTERED TRADES ≤ {cap}/MONTH', not over,
+         f"{month}: " + (', '.join(f'{a} {c[month]}' for a, c in sorted(per_acct.items())) or 'no registered trades'),
+         over + recent[-9:])
 
     # ---------- income ----------
     income = collections.defaultdict(lambda: collections.defaultdict(float))

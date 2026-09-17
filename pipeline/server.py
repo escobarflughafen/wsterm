@@ -161,11 +161,15 @@ async def import_preview(files: list[UploadFile] = File(...)):
     if not files or len(files) > 10:
         raise HTTPException(400, 'Upload 1 to 10 CSV files')
     limit = int(MAX_UPLOAD_MB * 1024 * 1024)
-    payload = []
+    total_limit = limit * 2  # bound how much one request can hold in memory
+    payload, total = [], 0
     for f in files:
         raw = await f.read(limit + 1)
         if len(raw) > limit:
             raise HTTPException(413, f'{f.filename} is larger than {MAX_UPLOAD_MB:g} MB')
+        total += len(raw)
+        if total > total_limit:
+            raise HTTPException(413, f'Upload exceeds {2 * MAX_UPLOAD_MB:g} MB in total')
         payload.append((f.filename, raw))
     return store.preview(payload)
 
