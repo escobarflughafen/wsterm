@@ -1,0 +1,5 @@
+"Account Name","Account Type","Account Classification","Account Number","Symbol","Exchange","MIC","Name","Security Type","Quantity","Position Direction","Market Price","Market Price Currency","Book Value (CAD)","Book Value Currency (CAD)","Book Value (Market)","Book Value Currency (Market)","Market Value","Market Value Currency","Market Unrealized Returns","Market Unrealized Returns Currency"
+"RRSP","RRSP","Trade","RRSP1CAD","VOO","NYSE","XNYS","Vanguard S&P 500 ETF","EXCHANGE_TRADED_FUND","2","LONG","640","USD","1414","CAD","1010","USD","1280","USD","270","USD"
+"RRSP","RRSP","Trade","RRSP1CAD","USD","","","USD","CURRENCY","990","LONG","1","USD","1386","CAD","990","USD","990","USD","0","USD"
+
+"As of 2026-01-31 18:00 GMT-05:00"

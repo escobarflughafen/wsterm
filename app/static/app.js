@@ -381,7 +381,8 @@ const SCREEN = {
       { k: 'upl_pct', label: 'UNREAL %', fmt: r => signedPct(r.upl_pct) },
     ], D.holdings, { sortKey: 'mv_cad', onRow: r => r.qty != null && openSymbol(r.sym, r.cur) });
     return [stats, h('div', { class: 'row', style: 'grid-template-columns:1fr' }, panel('ACCOUNTS', 'click a row for its history', null, accts)),
-      panel('HOLDINGS', `${D.holdings.length} lines · click a row to open the symbol`, null, hold)];
+      panel('HOLDINGS', `${D.holdings.length} lines · from your activity ledger · click a row to open the symbol`, null, hold),
+      reconcilePanel()];
   },
 
   PERF() {
@@ -1176,6 +1177,39 @@ function intradayPanel(t, bars, trades, toListed) {
       { k: 'Volume', label: 'VOLUME', fmt: r => volReported(r) ? vol(r.Volume) : h('span', { class: 'mut', title: 'Yahoo reported no volume for this bar' }, '—') },
     ], rows, { sortKey: 'Datetime', max: 400 }),
     h('div', { class: 'body mut' }, 'A bar is stamped with the hour it opened, in the exchange\'s own time, and Wealthsimple stamps fills the same way — so ▲/▼ sit in the hour that actually printed them. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.'));
+}
+
+// ---------- ledger vs broker snapshot ----------
+// Positions and NAV are computed from the activity ledger, so an import moves them immediately. The
+// holdings report is Wealthsimple's own count on its own date: here it exists only to be checked
+// against, and to explain itself when it disagrees rather than quietly overriding anything.
+function reconcilePanel() {
+  const R = D.reconcile;
+  if (!R) {
+    return panel('LEDGER VS BROKER SNAPSHOT', 'no holdings report imported', null,
+      h('div', { class: 'body mut' }, 'Everything is computed from your activity history, which is enough on its own. Importing a holdings report adds an independent check on the share counts and cash.'));
+  }
+  const n = R.differences.length;
+  const sub = R.stale ? `report is from ${R.asof} · your trades run to ${R.newest_activity}` : `report is from ${R.asof}`;
+  const verdict = !n
+    ? h('div', { class: 'body' }, h('span', { class: 'up' }, '▲ MATCHES'), h('span', { class: 'mut' }, ' — every share count and cash balance agrees with the broker.'))
+    : h('div', { class: 'body' }, R.stale
+      ? 'Positions and NAV come from your activity ledger, so these lines are simply the trades made after the report was taken. Export a fresh holdings report to clear them.'
+      : 'The report is not older than your trades, so these lines are a real disagreement: an activity export may be missing rows. Re-export the full activity history.');
+  return panel('LEDGER VS BROKER SNAPSHOT', sub, null,
+    h('div', { class: 'stats' },
+      stat('LEDGER NAV', money(R.ledger_value), 'computed from your trades'),
+      stat('REPORT NAV', money(R.report_value), `as of ${R.asof}`),
+      stat('LINES DIFFER', n ? String(n) : '—', n ? 'share counts and cash below' : 'nothing to explain'),
+      stat('REPORT AGE', R.stale ? 'BEHIND' : 'CURRENT', R.stale ? `trades run to ${R.newest_activity}` : 'covers every trade')),
+    verdict,
+    n ? table([
+      { k: 'acct', label: 'ACCOUNT', l: true },
+      { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
+      { k: 'ledger', label: 'LEDGER', fmt: r => num(r.ledger, 4) },
+      { k: 'report', label: 'REPORT', fmt: r => num(r.report, 4) },
+      { k: 'diff', label: 'DIFFERENCE', fmt: r => signed(r.diff, x => num(x, 4)) },
+    ], R.differences, { sortKey: 'diff' }) : null);
 }
 
 // ---------- symbol screen ----------

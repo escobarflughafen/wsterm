@@ -59,8 +59,44 @@ def test_activity_only_build_derives_current_holdings(fixture_bytes, synthetic_m
     d = json.load(open(BUILD_DIR / 'data.json'))
 
     assert d['holdings_source'] == 'activities'
-    assert 'ESTIMATED FROM ACTIVITIES' in d['asof']
+    assert d['asof'] == '2026-02-09'            # how fresh the ledger is, the only source there is
+    assert d['reconcile'] is None               # nothing to check against
     voo = next(h for h in d['holdings'] if h['sym'] == 'VOO')
     cash = next(h for h in d['holdings'] if h['sym'] == 'USD CASH')
     assert (voo['acct'], voo['qty'], voo['px'], voo['mv']) == ('RRSP', 3.0, 640.0, 1920.0)
     assert cash['mv'] == 400.0
+
+
+def test_a_stale_holdings_report_cannot_freeze_nav(fixture_bytes, synthetic_market):
+    """The ledger is the source. A holdings report taken before the newest trade must not override it,
+    and every line it disagrees on has to be named rather than silently winning."""
+    import json
+    import build_app
+    from settings import BUILD_DIR
+
+    # The report is as of 2026-01-31: it predates the 2026-02-09 purchase of a third VOO share.
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv'), fixture_bytes('holdings_rrsp_stale.csv')])['id'])
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+
+    voo = next(h for h in d['holdings'] if h['sym'] == 'VOO')
+    cash = next(h for h in d['holdings'] if h['sym'] == 'USD CASH')
+    assert voo['qty'] == 3.0 and cash['mv'] == 400.0          # the ledger, not the report's 2 and 990
+    assert d['summary']['total'] == 3248.0                    # (3 x 640 + 400) USD at 1.4
+
+    r = d['reconcile']
+    assert r['stale'] is True and r['asof'].startswith('2026-01-31') and r['newest_activity'] == '2026-02-09'
+    assert r['ledger_value'] == 3248.0 and r['report_value'] == 3178.0
+    assert {(x['sym'], x['diff']) for x in r['differences']} == {('VOO', 1.0), ('USD CASH', -590.0)}
+
+
+def test_a_current_holdings_report_reports_no_differences(fixture_bytes, synthetic_market):
+    import json
+    import build_app
+    from settings import BUILD_DIR
+
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv'), fixture_bytes('holdings_rrsp.csv')])['id'])
+    build_app.main()
+    r = json.load(open(BUILD_DIR / 'data.json'))['reconcile']
+    assert r['stale'] is False and r['differences'] == []
+    assert r['ledger_value'] == r['report_value']

@@ -76,69 +76,80 @@ def main():
     )
 
     # ---------- current holdings ----------
-    # Prefer Wealthsimple's snapshot when present. Otherwise reconstruct the
-    # current positions and cash from the complete activity ledger and value
-    # securities at Yahoo's latest close.
+    # The activity ledger is the source: it is what an import updates, complete or incremental, so
+    # everything on every screen moves the moment trades land. Wealthsimple's snapshot is kept purely
+    # as an independent check (see the reconciliation below) -- never as the source, because a holdings
+    # report that is a day older than your trades would otherwise silently freeze NAV and positions.
+    names = {}
+    for h in hold_rows:                              # the report has the nicest display names; take those
+        names[(h['Symbol'], h['Market Price Currency'])] = h['Name']
+    for a in acts:
+        if a['symbol']:
+            names.setdefault((a['symbol'], a['currency']), a.get('name') or
+                             (a['description'].split(' - ', 1)[1].split(':')[0].strip()
+                              if ' - ' in a['description'] else a['symbol']))
     rows, acct_val = [], collections.defaultdict(float)
-    for h in hold_rows:
-        acct, sym, cur = h['Account Type'], h['Symbol'], h['Market Value Currency']
-        mv_cad = to_cad(float(h['Market Value']), cur)
-        acct_val[acct] += mv_cad
-        if h['Security Type'] == 'CURRENCY':
-            rows.append(dict(acct=acct, sym=f'{sym} CASH', name='Cash', cat='cash', cur=cur, qty=None, avg=None,
-                             px=None, mv=r2(float(h['Market Value'])), mv_cad=r2(mv_cad), upl=0, upl_pct=None, day_pct=None))
-            continue
-        q, book, px = float(h['Quantity']), float(h['Book Value (Market)']), float(h['Market Price'])
-        t = tmap.get((sym, h['Market Price Currency']))
-        day = None
-        if t:
-            c = history(t)['Close'].dropna()
-            if len(c) > 1:
-                day = c.iloc[-1] / c.iloc[-2] - 1
-        rows.append(dict(acct=acct, sym=sym, name=h['Name'], cat=category(sym, acct), cur=cur, qty=q, avg=r2(book / q),
-                         px=px, mv=r2(q * px), mv_cad=r2(mv_cad), upl=r2(q * px - book),
-                         upl_pct=round((q * px / book - 1), 4) if book else None,
-                         day_pct=None if day is None else round(float(day), 4)))
     pos = build_positions(acts)
-    if not hold_rows:
-        names = {}
-        for a in acts:
-            if a['symbol']:
-                names.setdefault((a['symbol'], a['currency']), a.get('name') or
-                                 (a['description'].split(' - ', 1)[1].split(':')[0].strip()
-                                  if ' - ' in a['description'] else a['symbol']))
-        for (acct, sym, cur), p in pos.items():
-            q = float(p['q'])
-            if q <= 1e-9:
-                continue
-            t = None if is_option(sym) else tmap.get((sym, cur))
-            px = day = None
-            if t:
-                closes = history(t)['Close'].dropna()
-                if len(closes):
-                    px = float(closes.iloc[-1])
-                if len(closes) > 1:
-                    day = float(closes.iloc[-1] / closes.iloc[-2] - 1)
-            if px is None:
-                px = float(p['cost']) / q if q else 0.0
-            mv = q * px
-            mv_cad = to_cad(mv, cur)
-            book = float(p['cost'])
-            acct_val[acct] += mv_cad
-            rows.append(dict(acct=acct, sym=sym, name=names.get((sym, cur), sym), cat=category(sym, acct), cur=cur,
-                             qty=q, avg=r2(book / q), px=r2(px), mv=r2(mv), mv_cad=r2(mv_cad),
-                             upl=r2(mv - book), upl_pct=round(mv / book - 1, 4) if book else None,
-                             day_pct=None if day is None else round(float(day), 4)))
-        for (acct, cur), amount in base['cash'].items():
-            if abs(amount) <= 0.005:
-                continue
-            mv_cad = to_cad(amount, cur)
-            acct_val[acct] += mv_cad
-            rows.append(dict(acct=acct, sym=f'{cur} CASH', name='Cash', cat='cash', cur=cur, qty=None, avg=None,
-                             px=None, mv=r2(amount), mv_cad=r2(mv_cad), upl=0, upl_pct=None, day_pct=None))
+    for (acct, sym, cur), p in pos.items():
+        q = float(p['q'])
+        if q <= 1e-9:
+            continue
+        t = None if is_option(sym) else tmap.get((sym, cur))
+        px = day = None
+        if t:
+            closes = history(t)['Close'].dropna()
+            if len(closes):
+                px = float(closes.iloc[-1])
+            if len(closes) > 1:
+                day = float(closes.iloc[-1] / closes.iloc[-2] - 1)
+        if px is None:
+            px = float(p['cost']) / q if q else 0.0
+        mv = q * px
+        mv_cad = to_cad(mv, cur)
+        book = float(p['cost'])
+        acct_val[acct] += mv_cad
+        rows.append(dict(acct=acct, sym=sym, name=names.get((sym, cur), sym), cat=category(sym, acct), cur=cur,
+                         qty=q, avg=r2(book / q), px=r2(px), mv=r2(mv), mv_cad=r2(mv_cad),
+                         upl=r2(mv - book), upl_pct=round(mv / book - 1, 4) if book else None,
+                         day_pct=None if day is None else round(float(day), 4)))
+    for (acct, cur), amount in base['cash'].items():
+        if abs(amount) <= 0.005:
+            continue
+        mv_cad = to_cad(amount, cur)
+        acct_val[acct] += mv_cad
+        rows.append(dict(acct=acct, sym=f'{cur} CASH', name='Cash', cat='cash', cur=cur, qty=None, avg=None,
+                         px=None, mv=r2(amount), mv_cad=r2(mv_cad), upl=0, upl_pct=None, day_pct=None))
     total_now = sum(acct_val.values())
     for row in rows:
         row['weight'] = round(row['mv_cad'] / total_now, 4) if total_now else 0
+
+    # ---------- snapshot reconciliation ----------
+    # The holdings report is Wealthsimple's own count on a given date. It no longer drives anything, so
+    # its job is to disagree loudly when the ledger and the broker do not match, and to say plainly when
+    # it is simply older than the trades rather than wrong. Quantities are compared per account and
+    # symbol (summed across booking currencies); cash is compared per currency.
+    reconcile = None
+    if hold_rows:
+        snapshot, report_cad = collections.defaultdict(float), 0.0
+        for h in hold_rows:
+            acct, cur = h['Account Type'], h['Market Value Currency']
+            report_cad += to_cad(float(h['Market Value']), cur)
+            if h['Security Type'] == 'CURRENCY':
+                snapshot[(acct, f"{h['Symbol']} CASH")] += float(h['Market Value'])
+            else:
+                snapshot[(acct, h['Symbol'])] += float(h['Quantity'])
+        ours = collections.defaultdict(float)
+        for r in rows:
+            ours[(r['acct'], r['sym'])] += r['mv'] if r['qty'] is None else r['qty']
+        differences = []
+        for key in sorted(set(snapshot) | set(ours), key=str):
+            mine, theirs = ours.get(key, 0.0), snapshot.get(key, 0.0)
+            if abs(mine - theirs) > 0.01:
+                differences.append(dict(acct=key[0], sym=key[1], ledger=r2(mine), report=r2(theirs), diff=r2(mine - theirs)))
+        asof = store.holdings_asof() or ''
+        reconcile = dict(asof=asof.replace('T', ' '), newest_activity=acts[-1]['effective_date'],
+                         stale=asof[:10] < acts[-1]['effective_date'],
+                         report_value=r2(report_cad), ledger_value=r2(total_now), differences=differences)
 
     # ---------- realized P&L ----------
     positions = []
@@ -347,9 +358,9 @@ def main():
 
     data = dict(
         tickers=tickers,
-        asof=((store.holdings_asof() or '').replace('T', ' ') if hold_rows else
-              f"{acts[-1]['effective_date']} · ESTIMATED FROM ACTIVITIES"),
-        holdings_source='report' if hold_rows else 'activities',
+        asof=acts[-1]['effective_date'],          # the ledger is the source, so this is how fresh it is
+        holdings_source='activities',
+        reconcile=reconcile,
         built=dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
         price_date=series['dates'][-1], fx=fx_now,
         summary=dict(total=r2(total_now), contrib=r2(contrib_now), gain=r2(total_now - contrib_now),

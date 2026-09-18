@@ -88,6 +88,17 @@ const ZH = {
   'CAMPAIGN': '持仓周期', 'One continuous position in one account: it starts when shares move from zero to positive and ends when they return to zero. Transactions inside it are related, not independent bets.': '同一账户中的一段连续持仓：股数从零变为正数时开始，回到零时结束。其中的交易彼此相关，并非独立下注。',
   'ABOVE / BELOW COST': '高于 / 低于成本', 'The previous completed daily close is compared with average cost immediately before the decision. This avoids using a close that occurred after the trade.': '用决策前最近一个已完成的日收盘价与当时平均成本比较，避免使用交易发生后的收盘价。',
   'EXCESS RETURN': '超额收益', 'EXIT SCORE': '卖出评分', 'For a sale the sign is reversed: benchmark return minus the sold security return. Positive means selling added relative value; negative means holding would have done better.': '卖出采用反向符号：基准收益减去已卖证券收益。正值表示卖出创造了相对价值；负值表示继续持有会更好。',
+  // ledger vs broker snapshot
+  'LEDGER VS BROKER SNAPSHOT': '账本与券商快照核对', 'no holdings report imported': '尚未导入持仓报告',
+  'LEDGER NAV': '账本净值', 'REPORT NAV': '报告净值', 'LINES DIFFER': '差异行数', 'REPORT AGE': '报告时效',
+  'BEHIND': '落后', 'CURRENT': '最新', 'LEDGER': '账本', 'REPORT': '报告', 'DIFFERENCE': '差异',
+  'computed from your trades': '由你的交易记录计算得出', 'share counts and cash below': '股数与现金差异见下表',
+  'nothing to explain': '没有需要解释的差异', 'covers every trade': '覆盖全部交易', '▲ MATCHES': '▲ 完全一致',
+  ' — every share count and cash balance agrees with the broker.': ' —— 每一项股数与现金余额都与券商一致。',
+  'Everything is computed from your activity history, which is enough on its own. Importing a holdings report adds an independent check on the share counts and cash.': '所有数据都由你的交易历史计算得出，这本身已经足够。导入持仓报告可以为股数与现金提供一次独立核对。',
+  'Positions and NAV come from your activity ledger, so these lines are simply the trades made after the report was taken. Export a fresh holdings report to clear them.': '持仓与净值来自你的交易账本，因此这些差异只是报告生成之后发生的交易。导出一份新的持仓报告即可消除它们。',
+  'The report is not older than your trades, so these lines are a real disagreement: an activity export may be missing rows. Re-export the full activity history.': '报告并不比你的交易更旧，因此这些差异是真正的不一致：活动导出可能缺少某些行。请重新导出完整的活动历史。',
+
   // intraday (60-minute bars)
   'Yahoo reported no volume for this bar': '雅虎未提供该K线的成交量',
 
@@ -328,6 +339,11 @@ const ZH_PATTERNS = [
 
   [/^(\d+) bars over (\d+) sessions · exchange local time$/, '$2 个交易日共 $1 根K线 · 交易所本地时间'],
   [/^(\d+) bars report none$/, '$1 根K线未提供'],
+  [/^report is from (.+) · your trades run to (.+)$/, '报告截至 $1 · 你的交易记录到 $2'],
+  [/^report is from (.+)$/, '报告截至 $1'], [/^as of (.+)$/, '截至 $1'],
+  [/^trades run to (.+)$/, '交易记录到 $1'],
+  [/^(\d+) lines · from your activity ledger · click a row to open the symbol$/, '$1 行 · 来自你的交易账本 · 点击行打开代码'],
+
   [/^~([\d.]+)s · (\d+) prices · (\d+) hourly · (\d+) calendars( · FX)?$/, (m, s, p, hh, c, fx) => `约 ${s}秒 · ${p} 个价格 · ${hh} 个盘中 · ${c} 个日历${fx ? ' · 汇率' : ''}`],
   // relative time & counts
   [/^(\d+)D AGO$/, '$1天前'], [/^(\d+)H AGO$/, '$1小时前'], [/^(\d+)MIN AGO$/, '$1分钟前'], [/^(\d+)D$/, '$1天'],
