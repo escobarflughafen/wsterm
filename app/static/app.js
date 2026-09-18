@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -233,6 +233,33 @@ function rangeStart(dates, range) {
   const iso = from.toISOString().slice(0, 10);
   const i = dates.findIndex(d => d >= iso);
   return i < 0 ? 0 : i;
+}
+
+let auditReplayTimer = null;
+function setAuditDay(i, keepPlaying = false) {
+  const dates = D && D.audit && D.audit.indices.dates;
+  if (!dates || !dates.length) return;
+  state.auditDay = Math.max(0, Math.min(dates.length - 1, +i));
+  if (!keepPlaying) { state.auditPlaying = false; clearTimeout(auditReplayTimer); }
+  render();
+}
+function runAuditReplay() {
+  clearTimeout(auditReplayTimer);
+  if (!state.auditPlaying || state.screen !== 'AUD' || !D.audit.indices.dates.length) return;
+  auditReplayTimer = setTimeout(() => {
+    const last = D.audit.indices.dates.length - 1;
+    if (state.auditDay >= last) { state.auditPlaying = false; render(); return; }
+    state.auditDay += 1;
+    render();
+    runAuditReplay();
+  }, state.auditSpeed);
+}
+function toggleAuditReplay() {
+  const last = D.audit.indices.dates.length - 1;
+  if (!state.auditPlaying && state.auditDay >= last) state.auditDay = 0;
+  state.auditPlaying = !state.auditPlaying;
+  render();
+  runAuditReplay();
 }
 
 // ---------- screens ----------
@@ -534,7 +561,7 @@ const SCREEN = {
     if (!A) return [h('div', { class: 'skeleton' }, 'REBUILD DATA TO GENERATE THE DECISION AUDIT')];
     const C = A.concentration, AD = A.averaging_down, horizon = state.auditHorizon;
     const decisionName = s => ({
-      OPEN: 'INITIAL ENTRY', ADD_TO_LOSER: 'ADD BELOW COST', ADD_TO_WINNER: 'ADD ABOVE COST',
+      ALL: 'ALL DECISIONS', OPEN: 'INITIAL ENTRY', ADD_TO_LOSER: 'ADD BELOW COST', ADD_TO_WINNER: 'ADD ABOVE COST',
       REDUCE_LOSER: 'PARTIAL EXIT BELOW COST', REDUCE_WINNER: 'PARTIAL EXIT ABOVE COST',
       CLOSE_LOSER: 'FULL EXIT BELOW COST', CLOSE_WINNER: 'FULL EXIT ABOVE COST',
     })[s] || s.replaceAll('_', ' ');
@@ -544,10 +571,18 @@ const SCREEN = {
       concentration_top3: 'TOP-3 CONCENTRATION', concentration_top5: 'TOP-5 CONCENTRATION',
     })[s] || s.replaceAll('_', ' ');
     const band = (r, n) => r[`lo_${n}d`] == null ? '—' : `${(r[`lo_${n}d`] * 100).toFixed(2)}% → ${(r[`hi_${n}d`] * 100).toFixed(2)}%`;
-    const colors = ['var(--s1)', 'var(--s2)', 'var(--s3)', '#8f6bd1', '#d06b45', '#38a89d', '#a6a63d'];
-    const curves = Object.entries(A.indices.curves).map(([name, byH], i) => ({
+    const colors = ['var(--ink)', 'var(--s1)', 'var(--s2)', 'var(--s3)', '#8f6bd1', '#d06b45', '#38a89d', '#a6a63d'];
+    const dates = A.indices.dates;
+    if (state.auditDay == null || state.auditDay >= dates.length) state.auditDay = Math.max(0, dates.length - 1);
+    const slide = state.auditDay, slideDate = dates[slide], horizonDays = parseInt(horizon, 10);
+    const fullCurves = Object.entries(A.indices.curves).map(([name, byH], i) => ({
       name: decisionName(name), short: decisionName(name), color: colors[i % colors.length], values: byH[horizon],
     }));
+    const curves = fullCurves.map(c => ({ ...c, values: c.values.slice(0, slide + 1).map(v => Math.log2(v / 100)) }));
+    const started = A.decisions.filter(d => d.date === slideDate);
+    const matured = A.decisions.filter(d => d[`end_${horizon}`] === slideDate && d[`er_${horizon}`] != null);
+    const pending = A.decisions.filter(d => d.date <= slideDate && d[`end_${horizon}`] && d[`end_${horizon}`] > slideDate);
+    const factors = Object.entries(A.indices.curves).map(([cls, byH], i) => ({ cls, color: colors[i % colors.length], value: byH[horizon][slide] / 100 }));
     const evidenceCols = [
       { k: 'cls', label: 'DECISION CLASS', l: true, fmt: r => decisionName(r.cls) },
       { k: 'decisions', label: 'N' }, { k: 'campaigns', label: 'CAMPAIGNS' },
@@ -562,7 +597,7 @@ const SCREEN = {
       ['ABOVE / BELOW COST', 'The previous completed daily close is compared with average cost immediately before the decision. This avoids using a close that occurred after the trade.'],
       ['EXCESS RETURN', `Security return in CAD minus ${A.benchmark.replace('.TO', '')} return over the same fixed horizon. Positive means the decision beat the benchmark.`],
       ['EXIT SCORE', 'For a sale the sign is reversed: benchmark return minus the sold security return. Positive means selling added relative value; negative means holding would have done better.'],
-      ['CUMULATIVE INDEX', 'Starts at 100 and compounds the observed excess return of each decision class. It describes this history; overlapping decisions do not become independent evidence.'],
+      ['ACCUMULATED FACTOR', 'Starts at 1.000× and multiplies relative wealth when each score matures: security divided by benchmark for buys, and benchmark divided by security for sells.'],
       ['10–90% BAND', 'Campaigns are resampled as blocks. This is a concentration-sensitivity range, not a statistical confidence interval and not a probability of skill.'],
     ];
     return [
@@ -577,10 +612,48 @@ const SCREEN = {
         h('div', { class: 'tw help' }, h('table', {}, h('tbody', {}, explain.map(([term, meaning]) => h('tr', {},
           h('td', { class: 'amb', style: 'vertical-align:top;white-space:nowrap' }, term),
           h('td', { style: 'white-space:normal' }, meaning))))))),
-      panel('CUMULATIVE DECISION INDEX', '100 = starting level · compounds fixed-horizon excess returns by decision class',
-        seg(A.horizons.map(n => `${n}d`), horizon, x => { state.auditHorizon = x; render(); }),
-        h('div', { class: 'body' }, curves.length ? lineChart({ dates: A.indices.dates, series: curves, height: 330,
-          yfmt: (v, full) => full ? v.toFixed(2) : v.toFixed(0), zeroLine: false }) : h('span', { class: 'mut' }, 'No priced decisions yet.')),
+      panel('DAILY EVIDENCE REPLAY', `${horizonDays}-trading-day score · slide ${slide + 1} of ${dates.length} · no look-ahead`, [
+        h('button', { onclick: () => setAuditDay(0), title: 'First day' }, '|◀'),
+        h('button', { onclick: () => setAuditDay(slide - 1), title: 'Previous day' }, '◀'),
+        h('button', { 'aria-pressed': String(state.auditPlaying), onclick: toggleAuditReplay }, state.auditPlaying ? 'Ⅱ PAUSE' : '▶ PLAY'),
+        h('button', { onclick: () => setAuditDay(slide + 1), title: 'Next day' }, '▶'),
+        h('button', { onclick: () => setAuditDay(dates.length - 1), title: 'Latest day' }, '▶|'),
+        h('select', { 'aria-label': 'Score horizon', onchange: e => { state.auditHorizon = e.target.value; render(); } },
+          A.horizons.map(n => h('option', { value: `${n}d`, selected: horizon === `${n}d` }, `${n}D`))),
+        h('select', { 'aria-label': 'Replay speed', onchange: e => { state.auditSpeed = +e.target.value; if (state.auditPlaying) runAuditReplay(); } },
+          [[1200, 'SLOW'], [650, 'NORMAL'], [250, 'FAST']].map(([v, name]) => h('option', { value: v, selected: state.auditSpeed === v }, name))),
+      ],
+        h('div', { class: 'audit-slide' },
+          h('div', { class: 'audit-date' }, h('span', { class: 'mut' }, 'EVIDENCE AS OF'), h('b', {}, slideDate),
+            h('span', { class: 'audit-counter' }, `${slide + 1} / ${dates.length}`)),
+          h('input', { class: 'audit-scrub', type: 'range', min: 0, max: Math.max(0, dates.length - 1), value: slide,
+            'aria-label': 'Replay day', onchange: e => setAuditDay(e.target.value) }),
+          h('div', { class: 'factor-strip' }, factors.map(f => h('div', { class: 'factor', style: `--factor-color:${f.color}` },
+            h('span', {}, decisionName(f.cls)), h('b', {}, `${f.value.toFixed(3)}×`), h('small', {}, signedPct(f.value - 1, 2))))),
+          h('div', { class: 'audit-tape' },
+            h('span', { class: 'tag' }, 'TODAY'),
+            matured.length ? h('span', {}, `${matured.length} SCORES MATURED`) : h('span', { class: 'mut' }, 'NO SCORE MATURED'),
+            started.length ? h('span', {}, `${started.length} NEW DECISIONS`) : null,
+            h('span', { class: 'mut' }, `${pending.length} PENDING`)),
+          h('div', { class: 'row audit-events' },
+            panel('DECISIONS MADE', `${started.length} on this trading day`, null,
+              started.length ? table([
+                { k: 'class', label: 'CLASS', l: true, fmt: r => decisionName(r.class) },
+                { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
+                { k: 'notional_cad', label: 'NOTIONAL', fmt: r => money(r.notional_cad) },
+                { k: 'matures', label: 'SCORE DATE', fmt: r => r[`end_${horizon}`] || 'PENDING' },
+              ], started, { sortKey: 'class', desc: false }) : h('div', { class: 'body mut' }, 'No equity decision was made on this day.')),
+            panel('EVIDENCE MATURED', `${matured.length} fixed-horizon scores posted today`, null,
+              matured.length ? table([
+                { k: 'date', label: 'DECISION DATE', l: true },
+                { k: 'class', label: 'CLASS', l: true, fmt: r => decisionName(r.class) },
+                { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
+                { k: 'score', label: 'EXCESS SCORE', sort: r => r[`er_${horizon}`], fmt: r => signedPct(r[`er_${horizon}`], 2) },
+                { k: 'factor', label: 'RELATIVE FACTOR', sort: r => r[`factor_${horizon}`], fmt: r => r[`factor_${horizon}`] == null ? '—' : `${r[`factor_${horizon}`].toFixed(4)}×` },
+              ], matured, { sortKey: 'score' }) : h('div', { class: 'body mut' }, 'No fixed-horizon score matured on this day; accumulated factors carry forward.'))))),
+      panel('RELATIVE FACTOR PATH · LOG SCALE', '1.000× is neutral · evidence posts only after the selected horizon has elapsed', null,
+        h('div', { class: 'body' }, curves.length ? lineChart({ dates: dates.slice(0, slide + 1), series: curves, height: 330,
+          yfmt: (v, full) => `${(2 ** v).toFixed(full ? 3 : 1)}×`, zeroLine: true }) : h('span', { class: 'mut' }, 'No priced decisions yet.')),
         h('div', { class: 'body mut' }, A.methodology)),
       panel('DECISION EVIDENCE', 'average CAD excess return at fixed trading-day horizons · n = priced decisions', null,
         table(evidenceCols, A.summary, { sortKey: 'cls', desc: false }),
@@ -622,6 +695,7 @@ const SCREEN = {
           h('ul', { class: 'plain', style: 'margin-top:8px;color:var(--muted);display:grid;gap:4px' },
             h('li', {}, 'Daily bars are canonical; hourly data is optional and currently not used.'),
             h('li', {}, `Options remain in actual P&L (${A.options.campaigns} campaigns, ${money(A.options.pnl_cad)}) but are excluded from equity timing tests without contract history.`),
+            h('li', {}, 'Accumulated factors are frequency-weighted across decisions. They are diagnostic evidence paths, not portfolio returns.'),
             h('li', {}, 'The relative-effect dollars are exposure-weighted approximations, not a separately tradable portfolio return.'),
             h('li', {}, 'Shapley attribution, weekly-block bootstrap, and feasible timing randomization are not estimated in V1.'),
             h('li', {}, 'This audit reports what happened in this history. It never labels the result as proof of an edge.')))),

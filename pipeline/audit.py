@@ -24,37 +24,41 @@ def _r(value, places=4):
     return None if value is None or pd.isna(value) else round(float(value), places)
 
 
-def _series(ticker, cal, cad=True):
+def _series(ticker, cal, cad=True, days=None):
     """Adjusted close on the audit calendar, without inventing pre/post-coverage prices."""
+    days = cal.days if days is None else pd.DatetimeIndex(days)
     df = history(ticker).dropna(subset=['Adj Close'])
     if df.empty:
         return pd.Series(dtype=float), None
     raw = df['Adj Close'].astype(float)
-    out = raw.reindex(raw.index.union(cal.days)).sort_index().ffill().reindex(cal.days)
+    out = raw.reindex(raw.index.union(days)).sort_index().ffill().reindex(days)
     out.loc[out.index < raw.index[0]] = float('nan')
     out.loc[out.index > raw.index[-1]] = float('nan')
     if cad and not ticker.endswith(engine.CAD_SUFFIXES):
-        out = out * cal.fx
+        out = out * cal.fx.reindex(days).ffill().bfill()
     return out, raw.index[-1]
 
 
-def _mark_series(ticker, cal):
+def _mark_series(ticker, cal, days=None):
     """Split-corrected as-traded close, comparable with the ledger's historical cost/share."""
+    days = cal.days if days is None else pd.DatetimeIndex(days)
     raw = engine.as_traded_close(ticker).dropna().astype(float)
-    out = raw.reindex(raw.index.union(cal.days)).sort_index().ffill().reindex(cal.days)
+    out = raw.reindex(raw.index.union(days)).sort_index().ffill().reindex(days)
     if not raw.empty:
         out.loc[out.index < raw.index[0]] = float('nan')
         out.loc[out.index > raw.index[-1]] = float('nan')
     return out
 
 
-def _forward(series, day, horizon):
+def _forward_point(series, day, horizon):
     i = series.index.searchsorted(pd.Timestamp(day))
     j = i + horizon
     if i >= len(series) or j >= len(series):
-        return None
+        return None, None
     a, b = series.iloc[i], series.iloc[j]
-    return None if pd.isna(a) or pd.isna(b) or not a else float(b / a - 1)
+    if pd.isna(a) or pd.isna(b) or not a:
+        return None, None
+    return float(b / a - 1), series.index[j].strftime('%Y-%m-%d')
 
 
 def _quote_in_currency(value, ticker, currency, fx):
@@ -84,8 +88,8 @@ def _campaign_bootstrap(rows, horizon, samples=1000):
 
 def _summaries(decisions):
     out = []
-    for cls in ENTRY_CLASSES + EXIT_CLASSES:
-        rows = [d for d in decisions if d['class'] == cls]
+    for cls in ('ALL',) + ENTRY_CLASSES + EXIT_CLASSES:
+        rows = decisions if cls == 'ALL' else [d for d in decisions if d['class'] == cls]
         if not rows:
             continue
         item = dict(cls=cls, decisions=len(rows), campaigns=len({r['campaign'] for r in rows}))
@@ -101,39 +105,41 @@ def _summaries(decisions):
     return out
 
 
-def _indices(decisions):
-    """Equal-decision compounded excess-return indices, aligned to decision dates."""
-    dates = sorted({d['date'] for d in decisions})
+def _indices(decisions, days):
+    """Daily no-look-ahead indices: a score enters only when its forward horizon has matured."""
+    if not decisions:
+        return dict(dates=[], curves={}, base=100)
+    first = min(d['date'] for d in decisions)
+    dates = [d.strftime('%Y-%m-%d') for d in days if d >= pd.Timestamp(first)]
     curves = {}
-    for cls in ENTRY_CLASSES + EXIT_CLASSES:
-        by_date = collections.defaultdict(list)
-        for d in decisions:
-            if d['class'] == cls:
-                by_date[d['date']].append(d)
-        if not by_date:
+    for cls in ('ALL',) + ENTRY_CLASSES + EXIT_CLASSES:
+        rows = decisions if cls == 'ALL' else [d for d in decisions if d['class'] == cls]
+        if not rows:
             continue
         curves[cls] = {}
         for horizon in HORIZONS:
+            by_date = collections.defaultdict(list)
+            for d in rows:
+                if d[f'factor_{horizon}d'] is not None and d[f'end_{horizon}d']:
+                    by_date[d[f'end_{horizon}d']].append(d[f'factor_{horizon}d'])
             level, values = 100.0, []
-            key = f'er_{horizon}d'
             for date in dates:
-                for d in by_date.get(date, ()):
-                    if d[key] is not None:
-                        level *= 1 + d[key]
+                for factor in by_date.get(date, ()):
+                    level *= factor
                 values.append(_r(level, 3))
             curves[cls][f'{horizon}d'] = values
     return dict(dates=dates, curves=curves, base=100)
 
 
-def _campaigns_and_decisions(acts, cal, benchmark):
+def _campaigns_and_decisions(acts, cal, benchmark, days):
     states = collections.defaultdict(lambda: dict(q=0.0, cost=0.0, number=0, campaign=None))
     campaigns, decisions = [], []
-    bench_cad, _ = _series(benchmark, cal)
+    bench_cad, _ = _series(benchmark, cal, days=days)
     cache = {}
 
     def market(ticker):
         if ticker not in cache:
-            cache[ticker] = (_series(ticker, cal, False)[0], _series(ticker, cal, True)[0], _mark_series(ticker, cal))
+            cache[ticker] = (_series(ticker, cal, False, days)[0], _series(ticker, cal, True, days)[0], _mark_series(ticker, cal, days))
         return cache[ticker]
 
     ordered = sorted(enumerate(acts), key=lambda x: (x[1]['effective_date'], x[1]['effective_time'], x[0]))
@@ -183,14 +189,20 @@ def _campaigns_and_decisions(acts, cal, benchmark):
                            price_quality='DAILY')
                 local, cad, _ = market(ticker)
                 for horizon in HORIZONS:
-                    ticker_ret = _forward(cad, a['effective_date'], horizon)
-                    local_ret = _forward(local, a['effective_date'], horizon)
-                    benchmark_ret = _forward(bench_cad, a['effective_date'], horizon)
+                    ticker_ret, end_date = _forward_point(cad, a['effective_date'], horizon)
+                    local_ret, _ = _forward_point(local, a['effective_date'], horizon)
+                    benchmark_ret, _ = _forward_point(bench_cad, a['effective_date'], horizon)
                     er = None if ticker_ret is None or benchmark_ret is None else (ticker_ret - benchmark_ret) * (1 if qty > 0 else -1)
+                    factor = None
+                    if ticker_ret is not None and benchmark_ret is not None and 1 + ticker_ret > 0 and 1 + benchmark_ret > 0:
+                        relative = (1 + ticker_ret) / (1 + benchmark_ret)
+                        factor = relative if qty > 0 else 1 / relative
                     row[f'local_{horizon}d'] = _r(local_ret)
                     row[f'cad_{horizon}d'] = _r(ticker_ret)
                     row[f'benchmark_{horizon}d'] = _r(benchmark_ret)
                     row[f'er_{horizon}d'] = _r(er)
+                    row[f'factor_{horizon}d'] = _r(factor, 6)
+                    row[f'end_{horizon}d'] = end_date if er is not None else None
                     row[f'impact_{horizon}d'] = _r(er * row['notional_cad'], 2) if er is not None else None
                 if all(row[f'er_{h}d'] is None for h in HORIZONS):
                     row['price_quality'] = 'MISSING'
@@ -283,16 +295,18 @@ def build(acts, cal=None, benchmark=None):
     """Return JSON-safe V1 audit results using only cached daily market data."""
     benchmark = benchmark or engine.CFG['benchmarks'][0]
     cal = cal or engine.Calendar(acts[0]['effective_date'])
-    campaigns, decisions = _campaigns_and_decisions(acts, cal, benchmark)
+    benchmark_rows = history(benchmark).dropna(subset=['Adj Close'])
+    days = benchmark_rows.index[(benchmark_rows.index >= cal.days[0]) & (benchmark_rows.index <= cal.days[-1])]
+    campaigns, decisions = _campaigns_and_decisions(acts, cal, benchmark, days)
     priced = sum(d['price_quality'] != 'MISSING' for d in decisions)
     options = [c for c in campaigns if c['option']]
     return dict(
         version=1, benchmark=benchmark, clock='DAILY', horizons=list(HORIZONS),
-        methodology='Daily close-to-close CAD excess return; pre-trade state uses the previous completed close; exits use benchmark minus security. Equal-decision indices are descriptive, not evidence of independent bets.',
+        methodology='Daily close-to-close CAD excess return; pre-trade state uses the previous completed close; exits use benchmark minus security. When a horizon elapses, the accumulated series multiplies a positive relative-wealth factor: security/benchmark for buys, benchmark/security for sells. The indices are descriptive, not evidence of independent bets.',
         hypotheses=json.load(open(HYPOTHESES_PATH)),
         coverage=dict(decisions=len(decisions), daily_priced=priced, daily_pct=_r(priced / len(decisions), 3) if decisions else None,
                       missing=len(decisions) - priced, hourly_priced=0, options_excluded=len(options)),
-        decisions=decisions, summary=_summaries(decisions), indices=_indices(decisions),
+        decisions=decisions, summary=_summaries(decisions), indices=_indices(decisions, days),
         concentration=_concentration(campaigns, acts, cal, benchmark),
         averaging_down=_averaging_down(decisions, campaigns),
         options=dict(campaigns=len(options), pnl_cad=_r(sum(c['pnl_cad'] for c in options), 2), timing_excluded=True),

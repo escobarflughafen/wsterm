@@ -1,5 +1,6 @@
 import audit
 import engine
+import pytest
 
 
 def act(date, sym, qty, price, net, time='10:00:00', acct='TFSA', cur='USD'):
@@ -21,9 +22,16 @@ def test_campaign_decisions_fixed_horizons_and_indices(synthetic_market):
     assert classes == ['OPEN', 'ADD_TO_LOSER', 'REDUCE_LOSER', 'CLOSE_LOSER', 'OPEN']
     assert len({d['campaign'] for d in out['decisions']}) == 2
     assert out['decisions'][0]['er_20d'] > 0           # VOO rises faster than XEQT in the fixture
+    first = out['decisions'][0]
+    assert first['factor_20d'] == pytest.approx((1 + first['cad_20d']) / (1 + first['benchmark_20d']), abs=1e-6)
     assert out['decisions'][2]['er_20d'] < 0           # the same move makes selling relatively costly
     assert out['indices']['base'] == 100
+    assert all(v > 0 for v in out['indices']['curves']['ALL']['20d'])
     assert out['indices']['curves']['OPEN']['20d'][-1] > 100
+    assert len(out['indices']['dates']) > len(out['decisions'])
+    end_i = out['indices']['dates'].index(first['end_20d'])
+    assert out['indices']['curves']['OPEN']['20d'][0] == 100
+    assert out['indices']['curves']['OPEN']['20d'][end_i] > 100  # evidence enters only when 20D has elapsed
     assert out['coverage']['daily_priced'] == len(out['decisions'])
 
 
