@@ -1,0 +1,10 @@
+[
+  "H01 add_to_loser",
+  "H02 add_to_winner",
+  "H03 initial_entry",
+  "H04 partial_profit_taking",
+  "H05 full_exit",
+  "H06 short_horizon_exit",
+  "H07 concentration_top3",
+  "H08 concentration_top5"
+]

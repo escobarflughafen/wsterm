@@ -38,6 +38,14 @@ def test_two_genuine_fills_in_one_file_both_survive():
     assert len(rows_for('X')) == 2
 
 
+def test_later_file_can_reduce_a_duplicate_count():
+    """Newest-file authority applies to multiplicity as well as volatile fields."""
+    one = TWO_FILLS.splitlines()[0] + '\n'
+    s = store.preview([('older.csv', (H + TWO_FILLS).encode()), ('newer.csv', (H + one).encode())])
+    store.commit(s['id'])
+    assert len(rows_for('X')) == 1
+
+
 def test_partial_export_leaves_older_history_alone():
     store.commit(store.preview([('full.csv', (H + EARLIER + OPTION_V1).encode())])['id'])
     partial = store.preview([('partial.csv', (H + OPTION_V2).encode())])   # only 2026-09-17

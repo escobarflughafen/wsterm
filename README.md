@@ -1,8 +1,8 @@
 # Portfolio Terminal
 
 A self-hosted, Bloomberg-style terminal for a Wealthsimple portfolio: performance vs. benchmarks, realized P&L,
-trade hindsight, allocation rules, what-if simulation (remove trades, or freeze all trading after a trade/day with
-short- vs long-term comparisons and a hindsight map), and CSV import. English and Simplified Chinese UI
+campaign-based decision auditing with fixed-horizon excess-return indices, allocation rules, what-if simulation
+(remove trades, or freeze all trading after a trade/day), and CSV import. English and Simplified Chinese UI
 (`LANG <GO>`, the 中文/EN button, or `?lang=zh`) plus an optional persistent Vim navigation mode (`VIM <GO>` or the
 top-right toggle; `h/j/k/l` moves between panel controls, Enter activates, and `:q` exits). Single container, no database, all state in one
 data directory.
@@ -62,7 +62,7 @@ make test          # .venv
 make test-docker   # same suite inside the image; no local Python needed
 ```
 
-24 tests cover the import merge rules, the average-cost ledger, fetch scheduling, the freeze simulation and the HTTP
+The test suite covers import/restatement rules, the average-cost ledger, campaign auditing, fetch scheduling, simulations and the HTTP
 layer (auth, CSRF, upload limits, path traversal). They use synthetic fixtures only — never real exports.
 
 ### Where things are
@@ -75,6 +75,7 @@ pipeline/market_data.py  incremental Yahoo/BoC fetch             app/static/i18n
 pipeline/prices.py       cached price/FX readers (split-aware)   tests/                pytest + fixtures
 pipeline/engine.py       daily replay, benchmarks, remove-trades deploy/               host deploy script
 pipeline/freeze.py       stop-trading simulation                 Dockerfile            app + test stages
+pipeline/audit.py        campaigns and fixed-horizon audit       pipeline/audit_hypotheses.json frozen V1 tests
 pipeline/build_app.py    computes data.json (what the UI reads)  docker-compose*.yml   prod + dev overlay
 pipeline/jobs.py         background jobs, cooldown, scheduler    Makefile              every task
 pipeline/server.py       FastAPI: auth, CSRF, headers, API

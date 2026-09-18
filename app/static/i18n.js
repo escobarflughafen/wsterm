@@ -14,7 +14,7 @@ let LANG = (() => {
 const ZH = {
   // screens & navigation
   'PORTFOLIO': '投资组合', 'PERFORMANCE': '业绩表现', 'REALIZED P&L': '已实现盈亏', 'TRADES': '交易', 'ALLOCATION': '资产配置',
-  'RULES': '规则', 'EVENTS': '事件', 'INCOME': '收益', 'WHAT-IF': '情景模拟', 'DATA & FETCH': '数据与抓取', 'IMPORT': '导入', 'HELP': '帮助',
+  'RULES': '规则', 'EVENTS': '事件', 'INCOME': '收益', 'DECISION AUDIT': '决策审计', 'WHAT-IF': '情景模拟', 'DATA & FETCH': '数据与抓取', 'IMPORT': '导入', 'HELP': '帮助',
   'NAV ': '净值 ', 'DAY ': '当日 ', 'GAIN ': '收益 ', 'PX ': '行情 ', 'EXPORT ': '导出 ', 'USDCAD ': '美元/加元 ',
   'REBUILD': '重建', 'REFRESH': '刷新', 'FETCH': '抓取', 'OFFLINE': '离线', 'server not reachable': '无法连接服务器',
   'FETCH · UP TO DATE': '抓取 · 已是最新', 'FETCH · NO DATA': '抓取 · 无数据', 'FETCH · NEED HOLDINGS': '抓取 · 需要持仓报告', 'REBUILDING…': '重建中…', 'NEVER FETCHED': '从未抓取',
@@ -78,6 +78,16 @@ const ZH = {
   'BALANCE CHANGE': '余额变化', 'MONEY ADDED': '新增资金', 'INVESTMENT GAIN': '投资收益',
   'money added + investment gain': '新增资金 + 投资收益', 'deposits and transfers in range': '区间内的存入与转入',
   'balance change minus money added': '余额变化减去新增资金', 'value change minus money added': '市值变化减去新增资金',
+
+  // AUD
+  'OBSERVED RETURN': '观察收益率', 'OBSERVED EXCESS': '观察超额收益', 'descriptive, not an edge claim': '仅作描述，不代表存在优势',
+  'TOP 1 / POSITIVE P&L': '前1 / 正收益', 'TOP 3 / POSITIVE P&L': '前3 / 正收益', 'campaign concentration': '持仓周期集中度',
+  'DAILY COVERAGE': '日线覆盖率', 'CUMULATIVE DECISION INDEX': '累计决策指数', 'DECISION EVIDENCE': '决策证据',
+  'DECISION': '决策', 'CAMPAIGNS': '持仓周期', 'CONCENTRATION REMOVAL REPLAY': '集中度移除回放',
+  'SCENARIO': '情景', 'VS BENCH': '对比基准', 'END VALUE': '期末市值', 'TRADES OUT': '移除交易',
+  'AVERAGING-DOWN ROBUSTNESS': '摊低成本稳健性', '20D RELATIVE EFFECT': '20日相对效果', '60D RELATIVE EFFECT': '60日相对效果',
+  'MEDIAN CAMPAIGN P&L': '持仓周期盈亏中位数', 'WITHOUT AVG DOWN': '未摊低成本', '20D EFFECT': '20日效果', '60D EFFECT': '60日效果',
+  'START': '开始', 'END': '结束', 'DECISIONS': '决策数', 'P&L CAD': '盈亏（加元）', 'AUDIT BOUNDARIES': '审计边界',
   'time-weighted, money in and out removed': '时间加权，已剔除资金进出',
   'net buys of risk assets in range': '区间内风险资产净买入', 'deposits minus withdrawals in range': '区间内存入减取出',
   'portfolio value change': '组合市值变化', 'invested value change': '已投资市值变化',

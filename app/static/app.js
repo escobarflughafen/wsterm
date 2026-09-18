@@ -1,13 +1,13 @@
 'use strict';
 const SCREENS = [
   ['PORT', 'PORTFOLIO'], ['PERF', 'PERFORMANCE'], ['PNL', 'REALIZED P&L'], ['TRD', 'TRADES'],
-  ['ALOC', 'ALLOCATION'], ['RULE', 'RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
+  ['ALOC', 'ALLOCATION'], ['RULE', 'RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
 ];
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -526,6 +526,75 @@ const SCREEN = {
           { k: 'Fee', label: 'FEE', fmt: r => num(r.Fee) },
           { k: 'net', label: 'NET', fmt: r => signed(r.net, x => money(x, 2)) },
         ], rows, { sortKey: 'month' }))),
+    ];
+  },
+
+  AUD() {
+    const A = D.audit;
+    if (!A) return [h('div', { class: 'skeleton' }, 'REBUILD DATA TO GENERATE THE DECISION AUDIT')];
+    const C = A.concentration, AD = A.averaging_down, horizon = state.auditHorizon;
+    const label = s => s.replaceAll('_', ' ');
+    const colors = ['var(--s1)', 'var(--s2)', 'var(--s3)', '#8f6bd1', '#d06b45', '#38a89d', '#a6a63d'];
+    const curves = Object.entries(A.indices.curves).map(([name, byH], i) => ({
+      name: label(name), short: name.split('_').slice(0, 2).join(' '), color: colors[i % colors.length], values: byH[horizon],
+    }));
+    const evidenceCols = [
+      { k: 'cls', label: 'DECISION', l: true, fmt: r => label(r.cls) },
+      { k: 'decisions', label: 'N' }, { k: 'campaigns', label: 'CAMPAIGNS' },
+      ...A.horizons.map(n => ({ k: `er_${n}d`, label: `${n}D EXCESS`, fmt: r => h('span', {}, signedPct(r[`er_${n}d`], 2), h('span', { class: 'mut' }, ` · ${r[`n_${n}d`]}`)) })),
+    ];
+    const removals = C.removals.map(r => ({ ...r, label: `WITHOUT TOP ${r.n}` }));
+    const ranked = C.ranked.slice(0, 30);
+    return [
+      h('div', { class: 'stats' },
+        stat('OBSERVED RETURN', signedPct(C.actual_return, 2), 'daily portfolio TWR'),
+        stat(A.benchmark.replace('.TO', ''), signedPct(C.benchmark_return, 2), 'same deposits, CAD total return'),
+        stat('OBSERVED EXCESS', signedPP(C.actual_excess, 2), 'descriptive, not an edge claim'),
+        stat('TOP 1 / POSITIVE P&L', pct(C.top_positive_share['1'], 0), 'campaign concentration'),
+        stat('TOP 3 / POSITIVE P&L', pct(C.top_positive_share['3'], 0), `${C.ranked.length} campaigns`),
+        stat('DAILY COVERAGE', pct(A.coverage.daily_pct, 1), `${A.coverage.daily_priced}/${A.coverage.decisions} equity decisions`)),
+      panel('CUMULATIVE DECISION INDEX', '100 = starting level · compounds fixed-horizon excess returns by decision class',
+        seg(A.horizons.map(n => `${n}d`), horizon, x => { state.auditHorizon = x; render(); }),
+        h('div', { class: 'body' }, curves.length ? lineChart({ dates: A.indices.dates, series: curves, height: 330,
+          yfmt: (v, full) => full ? v.toFixed(2) : v.toFixed(0), zeroLine: false }) : h('span', { class: 'mut' }, 'No priced decisions yet.')),
+        h('div', { class: 'body mut' }, A.methodology)),
+      panel('DECISION EVIDENCE', 'mean CAD excess return · exits are benchmark minus sold security · count follows each score', null,
+        table(evidenceCols, A.summary, { sortKey: 'cls', desc: false }),
+        h('div', { class: 'body mut' }, 'Campaign bootstrap 10–90% ranges are retained in the audit payload. Transactions within one campaign are not treated as independent discoveries.')),
+      h('div', { class: 'row' },
+        panel('CONCENTRATION REMOVAL REPLAY', 'entire campaigns removed; remaining ledger is replayed', null, table([
+          { k: 'label', label: 'SCENARIO', l: true },
+          { k: 'return_', label: 'RETURN', fmt: r => signedPct(r.return_, 2) },
+          { k: 'excess', label: 'VS BENCH', fmt: r => signedPP(r.excess, 2) },
+          { k: 'end_value', label: 'END VALUE', fmt: r => money(r.end_value) },
+          { k: 'trades_removed', label: 'TRADES OUT' },
+        ], removals, { sortKey: 'n', desc: false })),
+        panel('AVERAGING-DOWN ROBUSTNESS', `${AD.decisions} decisions in ${AD.campaigns} campaigns`, null,
+          h('div', { class: 'stats' },
+            stat('20D RELATIVE EFFECT', signed(AD.impact_20d), 'notional × excess return'),
+            stat('60D RELATIVE EFFECT', signed(AD.impact_60d), 'notional × excess return'),
+            stat('MEDIAN CAMPAIGN P&L', signed(AD.campaign_pnl_with), 'campaigns containing add-to-loser'),
+            stat('WITHOUT AVG DOWN', signed(AD.campaign_pnl_without), 'other campaigns')),
+          table([
+            { k: 'sym', label: 'TICKER', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
+            { k: 'decisions', label: 'N' },
+            { k: 'impact_20d', label: '20D EFFECT', fmt: r => signed(r.impact_20d) },
+            { k: 'impact_60d', label: '60D EFFECT', fmt: r => signed(r.impact_60d) },
+          ], AD.by_ticker, { sortKey: 'impact_60d' }))),
+      panel('CAMPAIGNS', `${C.ranked.length} total · options included in P&L but excluded from timing tests`, null, table([
+        { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym), r.option ? h('span', { class: 'tag' }, ' OPTION') : null) },
+        { k: 'acct', label: 'ACCOUNT', l: true, sm: false },
+        { k: 'start', label: 'START' }, { k: 'end', label: 'END', fmt: r => r.end || 'OPEN' },
+        { k: 'decisions', label: 'DECISIONS' },
+        { k: 'avg_down', label: 'AVG↓', fmt: r => r.avg_down ? 'YES' : '—' },
+        { k: 'realized_cad', label: 'REALIZED', fmt: r => signed(r.realized_cad) },
+        { k: 'unrealized_cad', label: 'UNREALIZED', fmt: r => signed(r.unrealized_cad) },
+        { k: 'pnl_cad', label: 'P&L CAD', fmt: r => signed(r.pnl_cad) },
+      ], ranked, { sortKey: 'pnl_cad' })),
+      panel('AUDIT BOUNDARIES', 'frozen hypotheses · explicit exclusions', null,
+        h('div', { class: 'body' },
+          h('div', {}, A.hypotheses.join(' · ')),
+          h('div', { class: 'mut', style: 'margin-top:6px' }, `Options: ${A.options.campaigns} campaigns / ${money(A.options.pnl_cad)} P&L; timing excluded. Hourly coverage: ${A.coverage.hourly_priced}; daily is canonical. Attribution/Shapley and feasible timing randomization are not inferred by this V1 index.`))),
     ];
   },
 
@@ -1183,7 +1252,7 @@ function runCommand(raw) {
   if (!c) return;
   if (c === 'VIM') return setVimMode(true);
   if (c === ':Q' || c === 'VIM OFF' || c === 'NOVIM') return setVimMode(false);
-  const alias = { IMPORT: 'IMP', UPLOAD: 'IMP', PORTFOLIO: 'PORT', PNL: 'PNL', 'P&L': 'PNL', TRADES: 'TRD', ALLOC: 'ALOC', RULES: 'RULE', EVENTS: 'EVT', INCOME: 'INC', '?': 'HELP' };
+  const alias = { IMPORT: 'IMP', UPLOAD: 'IMP', PORTFOLIO: 'PORT', PNL: 'PNL', 'P&L': 'PNL', TRADES: 'TRD', ALLOC: 'ALOC', RULES: 'RULE', EVENTS: 'EVT', INCOME: 'INC', AUDIT: 'AUD', '?': 'HELP' };
   const k = alias[c] || c;
   if (SCREEN[k] && k !== 'SYM') { msg(''); return go(k); }
   if (c === 'LANG' || c === '中文' || c === 'ZH' || c === 'EN' || c === 'ENGLISH') { msg(''); return switchLang(c === 'LANG' ? null : c === 'EN' || c === 'ENGLISH' ? 'en' : 'zh'); }
@@ -1318,7 +1387,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey) return;
   if (e.key === '/') { e.preventDefault(); $('#cmd').focus(); return; }
   if (e.key === '?') return go('HELP');
-  if (e.key === '0') return go('DATA');
+  if (e.key === '0' && SCREENS[9]) return go(SCREENS[9][0]);
   const n = +e.key; if (n >= 1 && n <= 9) return go(SCREENS[n - 1][0]);
   if (!vimMode && /^[a-z]$/i.test(e.key)) { $('#cmd').focus(); }   // start typing a command anywhere
 });
@@ -1327,7 +1396,7 @@ pollStatus();
 load().catch(e => { $('#main').replaceChildren(h('div', { class: 'skeleton' }, `COULD NOT LOAD DATA (${e.message})`)); });
 function applyStaticText() {
   const narrow = matchMedia('(max-width: 760px)').matches;
-  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG' : 'or a ticker (NVDA, T.TO) · HELP · LANG');
+  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · AUD · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG' : 'or a ticker (NVDA, T.TO) · HELP · LANG');
   $('#rebuild').textContent = tr('REBUILD');
   $('#rebuild').title = tr('Recompute from exports and cached prices, no network (REBUILD <GO>)');
   $('#fetch').title = tr('Fetch due market data, then rebuild (FETCH <GO>)');

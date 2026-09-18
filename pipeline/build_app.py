@@ -6,6 +6,7 @@ import collections, csv, datetime as dt, json, math, os
 
 import pandas as pd
 
+import audit
 import options as opt
 import store
 from ledger import load_activities, holding_rows, build_positions
@@ -97,7 +98,7 @@ def main():
         rows.append(dict(acct=acct, sym=sym, name=h['Name'], cat=category(sym, acct), cur=cur, qty=q, avg=r2(book / q),
                          px=px, mv=r2(q * px), mv_cad=r2(mv_cad), upl=r2(q * px - book),
                          upl_pct=round((q * px / book - 1), 4) if book else None,
-                         day_pct=r2(day)))
+                         day_pct=None if day is None else round(float(day), 4)))
     pos = build_positions(acts)
     if not hold_rows:
         names = {}
@@ -127,7 +128,7 @@ def main():
             rows.append(dict(acct=acct, sym=sym, name=names.get((sym, cur), sym), cat=category(sym, acct), cur=cur,
                              qty=q, avg=r2(book / q), px=r2(px), mv=r2(mv), mv_cad=r2(mv_cad),
                              upl=r2(mv - book), upl_pct=round(mv / book - 1, 4) if book else None,
-                             day_pct=r2(day)))
+                             day_pct=None if day is None else round(float(day), 4)))
         for (acct, cur), amount in base['cash'].items():
             if abs(amount) <= 0.005:
                 continue
@@ -369,6 +370,7 @@ def main():
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
         options=open_options,
+        audit=audit.build(acts, cal),
         events=events,
     )
     os.makedirs(APP, exist_ok=True)

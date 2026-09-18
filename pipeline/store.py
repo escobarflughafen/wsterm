@@ -164,12 +164,20 @@ def merge_activities(existing, incoming_files):
     """incoming_files: list of row lists, one per uploaded file (newest last wins on restatements)."""
     covered, incoming, by_key = {}, collections.Counter(), {}
     for rows in incoming_files:
-        for acct, (lo, hi) in _coverage(rows).items():
+        spans = _coverage(rows)
+        for acct, (lo, hi) in spans.items():
             have_lo, have_hi = covered.get(acct, (lo, hi))
             covered[acct] = (min(have_lo, lo), max(have_hi, hi))
+        # The later file is authoritative inside its own coverage.  Using max()
+        # here would preserve a duplicate that the broker removed in a re-export.
+        for key in list(incoming):
+            window = spans.get(key[2])                 # account_id is identity column 2
+            if window and window[0] <= key[0] <= window[1]:
+                del incoming[key]
+                by_key.pop(key, None)
         counts = collections.Counter(map(row_key, rows))
         for key, n in counts.items():
-            incoming[key] = max(incoming[key], n)          # same file twice must not double a fill
+            incoming[key] = n
         by_key.update((row_key(r), r) for r in rows)        # later files restate earlier ones
 
     def in_window(row):
