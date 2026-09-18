@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -236,12 +236,24 @@ function rangeStart(dates, range) {
 }
 
 let auditReplayTimer = null;
-function setAuditDay(i, keepPlaying = false) {
+function setAuditDay(i, keepPlaying = false, refocus = false) {
   const dates = D && D.audit && D.audit.indices.dates;
   if (!dates || !dates.length) return;
   state.auditDay = Math.max(0, Math.min(dates.length - 1, +i));
+  state.auditRefocus = refocus;
   if (!keepPlaying) { state.auditPlaying = false; clearTimeout(auditReplayTimer); }
   render();
+}
+function auditSliderKey(e) {
+  const vimBack = vimMode && e.key === 'h', vimForward = vimMode && e.key === 'l';
+  const back = e.key === 'ArrowLeft' || e.key === 'ArrowDown' || vimBack;
+  const forward = e.key === 'ArrowRight' || e.key === 'ArrowUp' || vimForward;
+  if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); return setAuditDay(0, false, true); }
+  if (e.key === 'End') { e.preventDefault(); e.stopPropagation(); return setAuditDay(D.audit.indices.dates.length - 1, false, true); }
+  if (!back && !forward) return;
+  e.preventDefault();
+  e.stopPropagation();
+  setAuditDay(state.auditDay + (back ? -1 : 1) * (e.shiftKey ? 5 : 1), false, true);
 }
 function runAuditReplay() {
   clearTimeout(auditReplayTimer);
@@ -565,6 +577,15 @@ const SCREEN = {
       REDUCE_LOSER: 'PARTIAL EXIT BELOW COST', REDUCE_WINNER: 'PARTIAL EXIT ABOVE COST',
       CLOSE_LOSER: 'FULL EXIT BELOW COST', CLOSE_WINNER: 'FULL EXIT ABOVE COST',
     })[s] || s.replaceAll('_', ' ');
+    const decisionMeaning = s => ({
+      OPEN: 'The position moved from zero to positive. This starts a new campaign and measures the initial entry.',
+      ADD_TO_LOSER: 'More shares were bought while the previous completed close was below the pre-trade average cost.',
+      ADD_TO_WINNER: 'More shares were bought while the previous completed close was at or above the pre-trade average cost.',
+      REDUCE_LOSER: 'Part of the position was sold below average cost, while some shares remained.',
+      REDUCE_WINNER: 'Part of the position was sold at or above average cost, while some shares remained.',
+      CLOSE_LOSER: 'The remaining position was sold below average cost, ending the campaign.',
+      CLOSE_WINNER: 'The remaining position was sold at or above average cost, ending the campaign.',
+    })[s] || '';
     const hypothesisName = s => ({
       add_to_loser: 'ADD BELOW COST', add_to_winner: 'ADD ABOVE COST', initial_entry: 'INITIAL ENTRY',
       partial_profit_taking: 'PARTIAL EXIT ABOVE COST', full_exit: 'FULL EXIT', short_horizon_exit: 'SHORT-HORIZON EXIT',
@@ -627,7 +648,9 @@ const SCREEN = {
           h('div', { class: 'audit-date' }, h('span', { class: 'mut' }, 'EVIDENCE AS OF'), h('b', {}, slideDate),
             h('span', { class: 'audit-counter' }, `${slide + 1} / ${dates.length}`)),
           h('input', { class: 'audit-scrub', type: 'range', min: 0, max: Math.max(0, dates.length - 1), value: slide,
-            'aria-label': 'Replay day', onchange: e => setAuditDay(e.target.value) }),
+            'aria-label': 'Replay day', title: 'Arrow keys or Vim h/l move one day · Shift moves five',
+            onchange: e => setAuditDay(e.target.value), onkeydown: auditSliderKey }),
+          h('div', { class: 'audit-keyhint' }, 'FOCUSED SLIDER: ←/→ OR VIM h/l = 1 DAY · SHIFT = 5 · HOME/END = EDGES'),
           h('div', { class: 'factor-strip' }, factors.map(f => h('div', { class: 'factor', style: `--factor-color:${f.color}` },
             h('span', {}, decisionName(f.cls)), h('b', {}, `${f.value.toFixed(3)}×`), h('small', {}, signedPct(f.value - 1, 2))))),
           h('div', { class: 'audit-tape' },
@@ -635,6 +658,35 @@ const SCREEN = {
             matured.length ? h('span', {}, `${matured.length} SCORES MATURED`) : h('span', { class: 'mut' }, 'NO SCORE MATURED'),
             started.length ? h('span', {}, `${started.length} NEW DECISIONS`) : null,
             h('span', { class: 'mut' }, `${pending.length} PENDING`)),
+          h('section', { class: 'audit-explain' },
+            h('h3', {}, 'WHAT THIS DAY MEANS'),
+            h('div', { class: 'audit-glossary' },
+              h('div', {}, h('b', {}, 'DECISION MADE'), h('span', {}, 'A transaction was classified from the portfolio state immediately before it. Its future score is still unknown.')),
+              h('div', {}, h('b', {}, 'EVIDENCE MATURED'), h('span', {}, 'The selected observation window has fully elapsed. Only now does its score enter the accumulated factor.')),
+              h('div', {}, h('b', {}, 'PENDING'), h('span', {}, 'The decision exists, but its selected horizon has not finished. Pending is not a gain, loss, or missing-data verdict.'))),
+            h('div', { class: 'audit-stories scroll' },
+              ...started.map(d => h('article', { class: 'audit-story' },
+                h('div', { class: 'audit-story-head' }, h('span', { class: 'tag' }, 'DECISION MADE'),
+                  h('b', { class: 'amb', raw: true }, d.sym), h('strong', {}, decisionName(d.class))),
+                h('p', {}, decisionMeaning(d.class)),
+                h('div', { class: 'audit-metrics' },
+                  h('span', {}, h('small', {}, 'NOTIONAL'), h('b', {}, money(d.notional_cad))),
+                  h('span', {}, h('small', {}, 'SCORE DATE'), h('b', {}, d[`end_${horizon}`] || 'NO COMPLETE WINDOW'))))),
+              ...matured.map(d => h('article', { class: 'audit-story' },
+                h('div', { class: 'audit-story-head' }, h('span', { class: 'tag' }, 'EVIDENCE MATURED'),
+                  h('b', { class: 'amb', raw: true }, d.sym), h('strong', {}, decisionName(d.class))),
+                h('p', {}, `The ${horizonDays}-trading-day window from ${d.date} is complete. This score is posted today, not on the decision date.`),
+                h('div', { class: 'audit-metrics' },
+                  h('span', {}, h('small', {}, 'SECURITY RETURN'), signedPct(d[`cad_${horizon}`], 2)),
+                  h('span', {}, h('small', {}, 'BENCHMARK RETURN'), signedPct(d[`benchmark_${horizon}`], 2)),
+                  h('span', {}, h('small', {}, 'EXCESS SCORE'), signedPct(d[`er_${horizon}`], 2)),
+                  h('span', {}, h('small', {}, 'RELATIVE FACTOR'), h('b', {}, d[`factor_${horizon}`] == null ? '—' : `${d[`factor_${horizon}`].toFixed(4)}×`))),
+                h('p', { class: 'mut' }, d.cls === 'EXIT'
+                  ? 'For an exit, a positive score means the benchmark beat the sold security afterward, so selling added relative value. A negative score means holding would have done better.'
+                  : 'For an entry, a positive score means the security beat the benchmark after the purchase. A negative score means the benchmark did better.'))),
+              !started.length && !matured.length ? h('article', { class: 'audit-story quiet' },
+                h('b', {}, 'NO NEW EVIDENCE TODAY'),
+                h('p', {}, `No decision was made and no ${horizonDays}-trading-day score matured. The accumulated factors carry forward unchanged; ${pending.length} earlier decisions remain pending.`)) : null)),
           h('div', { class: 'row audit-events' },
             panel('DECISIONS MADE', `${started.length} on this trading day`, null,
               started.length ? table([
@@ -1350,6 +1402,10 @@ function render() {
   if (!D && !NO_DATA_OK.has(state.screen)) state.screen = 'IMP';
   $('#main').replaceChildren(...SCREEN[state.screen]().filter(Boolean));
   if (same) document.querySelectorAll('#main .scroll').forEach((el, i) => { if (keep[i]) el.scrollTop = keep[i]; });
+  if (state.auditRefocus && state.screen === 'AUD') {
+    state.auditRefocus = false;
+    requestAnimationFrame(() => $('.audit-scrub')?.focus({ preventScroll: true }));
+  }
 }
 function runCommand(raw) {
   const c = raw.trim().toUpperCase().replace(/\s*<?GO>?$/, '');
