@@ -74,3 +74,40 @@ def test_sweep_shape(ctx):
     s = ctx.sweep(step=5, min_value=0)
     assert len(s['dates']) == len(s['1M']) == len(s['3M']) == len(s['to_date']) > 5
     assert s['3M'][-1] is None and s['to_date'][-1] is not None
+
+
+def test_removing_a_sell_keeps_the_shares_and_forgoes_the_proceeds(ctx):
+    """Anchor for the what-if engine: the difference is exactly shares kept minus cash not received."""
+    import engine
+    acts = ctx.acts
+    sell = next(a for a in acts if a['activity_type'] == 'Trade' and float(a['quantity']) < 0)
+    base = engine.simulate(acts, [], None)['summary']['actual']
+    got = engine.simulate(acts, [engine.trade_id(sell)], None)['summary']['simulated'] - base
+    qty, proceeds = -float(sell['quantity']), float(sell['net_cash_amount'])
+    assert got == pytest.approx((qty * voo('2026-03-31') - proceeds) * FX, abs=0.01)
+
+
+def test_removing_a_buy_also_shrinks_the_sell_it_funded(ctx):
+    """Two identical same-second fills share one id, and a sell with no shares left is clipped to zero."""
+    import engine
+    acts = ctx.acts
+    buy = next(a for a in acts if a['activity_type'] == 'Trade' and float(a['quantity']) > 0)
+    base = engine.simulate(acts, [], None)['summary']['actual']
+    r = engine.simulate(acts, [engine.trade_id(buy)], None)
+    got = r['summary']['simulated'] - base
+    # both 2-share fills disappear (4 shares, $2,000 unspent) and the later 3-share sell has nothing to sell
+    assert r['summary']['removed'] == 2 and r['summary']['clipped'] == 1
+    expected = (2000 - 1800 - 1 * voo('2026-03-31')) * FX          # cash kept, proceeds forgone, share gone
+    assert got == pytest.approx(expected, abs=0.01)
+
+
+def test_redirecting_freed_cash_into_the_same_etf_is_a_wash(ctx):
+    """Freed cash buys VOO at that day's close, so removing a VOO sell and rebuying leaves only price drift."""
+    import engine
+    acts = ctx.acts
+    sell = next(a for a in acts if a['activity_type'] == 'Trade' and float(a['quantity']) < 0)
+    base = engine.simulate(acts, [], None)['summary']['actual']
+    idle = engine.simulate(acts, [engine.trade_id(sell)], None)['summary']['simulated'] - base
+    into_voo = engine.simulate(acts, [engine.trade_id(sell)], 'VOO')['summary']['simulated'] - base
+    # removing a sell leaves the simulation with less cash; putting that shortfall into VOO cannot help it
+    assert into_voo < idle

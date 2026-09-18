@@ -193,15 +193,29 @@ def apply_exclusions(acts, exclude, tmap):
 
 
 def redirect_cash(actual, sim, ticker, cal, acts_actual, acts_sim):
-    """Invest the cash difference between the simulation and reality into `ticker` on the day it appears."""
-    def cash_series(acts):
-        ev = [(pd.Timestamp(a['effective_date']), cal.to_cad(float(a['net_cash_amount'] or 0), a['currency'], a['effective_date']))
-              for a in acts if a['activity_type'] not in ('InternalSecurityTransfer',) and a['net_cash_amount']]
-        return cal.cumulative(ev)
-    delta = cash_series(acts_sim) - cash_series(acts_actual)  # extra CAD cash the simulation holds
+    """Invest the cash the simulation frees into `ticker`, buying on the day that cash appears.
+
+    The delta is tracked per currency: USD cash is converted at the rate of the day it appears when buying the
+    ETF, and at today's rate when it is subtracted from the simulated total — which is how the replay values
+    idle cash. Mixing the two rates would leak an FX gain into the comparison.
+    """
+    def cash_by_currency(acts):
+        events = collections.defaultdict(list)
+        for a in acts:
+            net = float(a['net_cash_amount'] or 0)
+            if net and a['activity_type'] != 'InternalSecurityTransfer':
+                events[a['currency']].append((pd.Timestamp(a['effective_date']), net))
+        return {cur: cal.cumulative(ev) for cur, ev in events.items()}
+
+    before, after = cash_by_currency(acts_actual), cash_by_currency(acts_sim)
+    zero = pd.Series(0.0, index=cal.days)
+    deltas = {cur: after.get(cur, zero) - before.get(cur, zero) for cur in set(before) | set(after)}
+
+    at_date = sum((d * cal.fx if cur == 'USD' else d) for cur, d in deltas.items())      # CAD when it appeared
+    today = sum((d * cal.fx_now if cur == 'USD' else d) for cur, d in deltas.items())    # CAD valued now
     adj = cal.adj_cad(ticker)
-    units = (delta.diff().fillna(delta.iloc[0]) / adj).cumsum()
-    return units * adj, delta  # ETF position value, idle cash it replaces
+    units = (at_date.diff().fillna(at_date.iloc[0]) / adj).cumsum()
+    return units * adj, today  # ETF position value, and the idle cash it replaces
 
 
 def simulate(acts, exclude, redirect=None):
