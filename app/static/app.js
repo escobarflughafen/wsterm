@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -188,6 +188,69 @@ function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine =
   resizeHooks.push(draw);
   return wrap;
 }
+// 1.0000× is neutral, so the glyph — not the colour, and not an absolute value — carries the direction.
+const factorBadge = v => v == null ? h('span', { class: 'mut' }, '—')
+  : h('span', { class: v > 1.00005 ? 'up' : v < 0.99995 ? 'down' : 'mut' },
+    `${v > 1.00005 ? '▲' : v < 0.99995 ? '▼' : ''}${v.toFixed(4)}×`);
+
+// Small multiples. Eight decision classes on one axis needed eight hues and still read as a tangle;
+// one panel each needs no palette at all, because the heading carries the identity.
+function factorFacets({ dates, facets }) {
+  const VW = 320, VH = 96, m = { l: 4, r: 4, t: 8, b: 8 };
+  const iw = VW - m.l - m.r, ih = VH - m.t - m.b, n = dates.length;
+  const pool = facets.flatMap(f => f.values.filter(v => v != null));
+  let lo = Math.min(1, ...pool), hi = Math.max(1, ...pool);
+  if (!pool.length) { lo = 0.98; hi = 1.02; }
+  const pad = (hi - lo) * 0.16 || 0.01; lo -= pad; hi += pad;
+  const X = i => m.l + (n <= 1 ? 0 : i / (n - 1) * iw);
+  const Y = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+  const tip = h('div', { class: 'tip', role: 'status' });
+  const grid = h('div', { class: 'facets' });
+
+  for (const f of facets) {
+    const last = [...f.values].reverse().find(v => v != null);
+    const seen = f.counts ? f.counts[f.values.length - 1] : null;
+    // preserveAspectRatio:none lets the card stretch; non-scaling strokes keep the lines 2px wide.
+    const svg = s('svg', { viewBox: `0 0 ${VW} ${VH}`, preserveAspectRatio: 'none', role: 'img',
+      'aria-label': `${tr(f.name)}: ${last == null ? tr('no evidence yet') : last.toFixed(4)}` });
+    svg.append(s('line', { class: 'facet-base', x1: m.l, x2: m.l + iw, y1: Y(1), y2: Y(1) }));
+    let d = '', pen = false;
+    f.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; pen = true; });
+    svg.append(s('path', { class: 'facet-line', d, fill: 'none', stroke: f.color }));
+    const cross = s('line', { class: 'facet-cross', x1: 0, x2: 0, y1: m.t, y2: m.t + ih, opacity: 0 });
+    const dot = s('circle', { class: 'facet-dot', r: 3, fill: f.color, opacity: 0 });
+    svg.append(cross, dot);
+
+    const card = h('article', { class: 'facet' },
+      h('header', {}, h('b', {}, f.name), h('span', { class: 'mut' }, seen == null ? '' : `n=${seen}`)),
+      // signed() takes the absolute value before formatting, which would print 0.9956× as 1.0044×.
+      h('div', { class: 'facet-v' }, factorBadge(last)),
+      svg);
+    const read = e => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - r.left) / r.width * (n - 1))));
+      const v = f.values[i];
+      cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
+      if (v == null) { dot.setAttribute('opacity', 0); } else {
+        dot.setAttribute('cx', X(i)); dot.setAttribute('cy', Y(v)); dot.setAttribute('opacity', 1);
+      }
+      tip.replaceChildren(h('b', {}, f.name), h('span', { class: 'd' }, dates[i]),
+        h('span', {}, v == null ? tr('no matured score yet') : `${v.toFixed(4)}×`),
+        f.counts ? h('span', { class: 'mut' }, `n=${f.counts[i]}`) : null);
+      const box = grid.getBoundingClientRect();
+      tip.style.display = 'block';
+      tip.style.left = `${Math.max(0, Math.min(e.clientX - box.left + 12, grid.clientWidth - 170))}px`;
+      tip.style.top = `${e.clientY - box.top + 12}px`;
+    };
+    svg.addEventListener('pointermove', read);
+    svg.addEventListener('pointerleave', () => {
+      tip.style.display = 'none'; cross.setAttribute('opacity', 0); dot.setAttribute('opacity', 0);
+    });
+    grid.append(card);
+  }
+  grid.append(tip);
+  return grid;
+}
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(Math.abs(raw) || 1))), f = raw / p; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p; }
 const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 function fmtDate(d, long) {
@@ -236,6 +299,16 @@ function rangeStart(dates, range) {
 }
 
 let auditReplayTimer = null;
+async function ensureAuditDecisions() {
+  if (!D || !D.audit || D.audit.decisions || state.auditLoading) return;
+  state.auditLoading = true;
+  try {
+    const r = await fetch('/audit_decisions.json', { cache: 'no-store' });
+    D.audit.decisions = r.ok ? await r.json() : [];
+  } catch { D.audit.decisions = []; }
+  state.auditLoading = false;
+  render();
+}
 function setAuditDay(i, keepPlaying = false, refocus = false) {
   const dates = D && D.audit && D.audit.indices.dates;
   if (!dates || !dates.length) return;
@@ -571,7 +644,8 @@ const SCREEN = {
   AUD() {
     const A = D.audit;
     if (!A) return [h('div', { class: 'skeleton' }, 'REBUILD DATA TO GENERATE THE DECISION AUDIT')];
-    const C = A.concentration, AD = A.averaging_down, horizon = state.auditHorizon;
+    ensureAuditDecisions();   // the per-decision rows are their own file; only this screen needs them
+    const C = A.concentration, AD = A.averaging_down, RC = A.reconciliation, horizon = state.auditHorizon;
     const decisionName = s => ({
       ALL: 'ALL DECISIONS', OPEN: 'INITIAL ENTRY', ADD_TO_LOSER: 'ADD BELOW COST', ADD_TO_WINNER: 'ADD ABOVE COST',
       REDUCE_LOSER: 'PARTIAL EXIT BELOW COST', REDUCE_WINNER: 'PARTIAL EXIT ABOVE COST',
@@ -592,18 +666,20 @@ const SCREEN = {
       concentration_top3: 'TOP-3 CONCENTRATION', concentration_top5: 'TOP-5 CONCENTRATION',
     })[s] || s.replaceAll('_', ' ');
     const band = (r, n) => r[`lo_${n}d`] == null ? '—' : `${(r[`lo_${n}d`] * 100).toFixed(2)}% → ${(r[`hi_${n}d`] * 100).toFixed(2)}%`;
-    const colors = ['var(--ink)', 'var(--s1)', 'var(--s2)', 'var(--s3)', '#8f6bd1', '#d06b45', '#38a89d', '#a6a63d'];
+    // Entry amber, exit blue, total ink: each facet is titled, so colour only separates the two sides.
+    const classColor = cls => cls === 'ALL' ? 'var(--ink)' : cls.startsWith('ADD') || cls === 'OPEN' ? 'var(--s1)' : 'var(--s2)';
     const dates = A.indices.dates;
     if (state.auditDay == null || state.auditDay >= dates.length) state.auditDay = Math.max(0, dates.length - 1);
     const slide = state.auditDay, slideDate = dates[slide], horizonDays = parseInt(horizon, 10);
-    const fullCurves = Object.entries(A.indices.curves).map(([name, byH], i) => ({
-      name: decisionName(name), short: decisionName(name), color: colors[i % colors.length], values: byH[horizon],
+    const facets = Object.entries(A.indices.curves).map(([cls, byH]) => ({
+      cls, name: decisionName(cls), color: classColor(cls),
+      values: byH[horizon].slice(0, slide + 1), counts: A.indices.counts[cls][horizon].slice(0, slide + 1),
     }));
-    const curves = fullCurves.map(c => ({ ...c, values: c.values.slice(0, slide + 1).map(v => Math.log2(v / 100)) }));
-    const started = A.decisions.filter(d => d.date === slideDate);
-    const matured = A.decisions.filter(d => d[`end_${horizon}`] === slideDate && d[`er_${horizon}`] != null);
-    const pending = A.decisions.filter(d => d.date <= slideDate && d[`end_${horizon}`] && d[`end_${horizon}`] > slideDate);
-    const factors = Object.entries(A.indices.curves).map(([cls, byH], i) => ({ cls, color: colors[i % colors.length], value: byH[horizon][slide] / 100 }));
+    const rows = A.decisions || [];
+    const started = rows.filter(d => d.date === slideDate);
+    const matured = rows.filter(d => d[`end_${horizon}`] === slideDate && d[`er_${horizon}`] != null);
+    const pending = rows.filter(d => d.date <= slideDate && d[`end_${horizon}`] && d[`end_${horizon}`] > slideDate);
+    const loadingRows = !A.decisions;
     const evidenceCols = [
       { k: 'cls', label: 'DECISION CLASS', l: true, fmt: r => decisionName(r.cls) },
       { k: 'decisions', label: 'N' }, { k: 'campaigns', label: 'CAMPAIGNS' },
@@ -611,15 +687,15 @@ const SCREEN = {
       { k: 'band20', sm: false, label: '20D 10–90% BAND', sort: r => r.lo_20d, fmt: r => band(r, 20) },
       { k: 'band60', sm: false, label: '60D 10–90% BAND', sort: r => r.lo_60d, fmt: r => band(r, 60) },
     ];
-    const removals = C.removals.map(r => ({ ...r, label: `WITHOUT TOP ${r.n}` }));
+    const removals = C.removals.map(r => ({ ...r, label: r.n ? `WITHOUT TOP ${r.n}` : 'ACTUAL PORTFOLIO' }));
     const ranked = C.ranked.slice(0, 30);
     const explain = [
       ['CAMPAIGN', 'One continuous position in one account: it starts when shares move from zero to positive and ends when they return to zero. Transactions inside it are related, not independent bets.'],
       ['ABOVE / BELOW COST', 'The previous completed daily close is compared with average cost immediately before the decision. This avoids using a close that occurred after the trade.'],
       ['EXCESS RETURN', `Security return in CAD minus ${A.benchmark.replace('.TO', '')} return over the same fixed horizon. Positive means the decision beat the benchmark.`],
       ['EXIT SCORE', 'For a sale the sign is reversed: benchmark return minus the sold security return. Positive means selling added relative value; negative means holding would have done better.'],
-      ['ACCUMULATED FACTOR', 'Starts at 1.000× and multiplies relative wealth when each score matures: security divided by benchmark for buys, and benchmark divided by security for sells.'],
-      ['10–90% BAND', 'Campaigns are resampled as blocks. This is a concentration-sensitivity range, not a statistical confidence interval and not a probability of skill.'],
+      ['AVERAGE RELATIVE FACTOR', 'Each matured score is one factor: security divided by benchmark for buys, benchmark divided by security for sells. The panels show the running average of those factors, never their product — a 60-day window overlaps its neighbours, so multiplying would count one market move dozens of times.'],
+      ['10–90% BAND', 'Campaigns are resampled as blocks and every decision inside a drawn campaign is pooled, so the band brackets the same average the table prints. This is a concentration-sensitivity range, not a statistical confidence interval and not a probability of skill.'],
     ];
     return [
       h('div', { class: 'stats' },
@@ -651,8 +727,6 @@ const SCREEN = {
             'aria-label': 'Replay day', title: 'Anywhere on AUD: arrows move one day, Shift+arrows move five, Vim H/L move one',
             onchange: e => setAuditDay(e.target.value), onkeydown: auditSliderKey }),
           h('div', { class: 'audit-keyhint' }, 'ANYWHERE ON AUD: ←/→ = 1 DAY · SHIFT+←/→ = 5 · VIM H/L = 1 · SLIDER ALSO: h/l, HOME/END'),
-          h('div', { class: 'factor-strip' }, factors.map(f => h('div', { class: 'factor', style: `--factor-color:${f.color}` },
-            h('span', {}, decisionName(f.cls)), h('b', {}, `${f.value.toFixed(3)}×`), h('small', {}, signedPct(f.value - 1, 2))))),
           h('div', { class: 'audit-tape' },
             h('span', { class: 'tag' }, 'TODAY'),
             matured.length ? h('span', {}, `${matured.length} SCORES MATURED`) : h('span', { class: 'mut' }, 'NO SCORE MATURED'),
@@ -662,7 +736,7 @@ const SCREEN = {
             h('h3', {}, 'WHAT THIS DAY MEANS'),
             h('div', { class: 'audit-glossary' },
               h('div', {}, h('b', {}, 'DECISION MADE'), h('span', {}, 'A transaction was classified from the portfolio state immediately before it. Its future score is still unknown.')),
-              h('div', {}, h('b', {}, 'EVIDENCE MATURED'), h('span', {}, 'The selected observation window has fully elapsed. Only now does its score enter the accumulated factor.')),
+              h('div', {}, h('b', {}, 'EVIDENCE MATURED'), h('span', {}, 'The selected observation window has fully elapsed. Only now does its score enter the average.')),
               h('div', {}, h('b', {}, 'PENDING'), h('span', {}, 'The decision exists, but its selected horizon has not finished. Pending is not a gain, loss, or missing-data verdict.'))),
             h('div', { class: 'audit-stories scroll' },
               ...started.map(d => h('article', { class: 'audit-story' },
@@ -684,9 +758,11 @@ const SCREEN = {
                 h('p', { class: 'mut' }, d.cls === 'EXIT'
                   ? 'For an exit, a positive score means the benchmark beat the sold security afterward, so selling added relative value. A negative score means holding would have done better.'
                   : 'For an entry, a positive score means the security beat the benchmark after the purchase. A negative score means the benchmark did better.'))),
-              !started.length && !matured.length ? h('article', { class: 'audit-story quiet' },
+              loadingRows ? h('article', { class: 'audit-story quiet' }, h('b', {}, 'LOADING DECISIONS'),
+                h('p', {}, 'The per-decision rows are fetched separately so the other screens do not carry them.')) : null,
+              !loadingRows && !started.length && !matured.length ? h('article', { class: 'audit-story quiet' },
                 h('b', {}, 'NO NEW EVIDENCE TODAY'),
-                h('p', {}, `No decision was made and no ${horizonDays}-trading-day score matured. The accumulated factors carry forward unchanged; ${pending.length} earlier decisions remain pending.`)) : null)),
+                h('p', {}, `No decision was made and no ${horizonDays}-trading-day score matured. The averages carry forward unchanged; ${pending.length} earlier decisions remain pending.`)) : null)),
           h('div', { class: 'row audit-events' },
             panel('DECISIONS MADE', `${started.length} on this trading day`, null,
               started.length ? table([
@@ -694,7 +770,7 @@ const SCREEN = {
                 { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
                 { k: 'notional_cad', label: 'NOTIONAL', fmt: r => money(r.notional_cad) },
                 { k: 'matures', label: 'SCORE DATE', fmt: r => r[`end_${horizon}`] || 'PENDING' },
-              ], started, { sortKey: 'class', desc: false }) : h('div', { class: 'body mut' }, 'No equity decision was made on this day.')),
+              ], started, { sortKey: 'class', desc: false }) : h('div', { class: 'body mut' }, loadingRows ? 'Loading decisions…' : 'No equity decision was made on this day.')),
             panel('EVIDENCE MATURED', `${matured.length} fixed-horizon scores posted today`, null,
               matured.length ? table([
                 { k: 'date', label: 'DECISION DATE', l: true },
@@ -702,22 +778,25 @@ const SCREEN = {
                 { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
                 { k: 'score', label: 'EXCESS SCORE', sort: r => r[`er_${horizon}`], fmt: r => signedPct(r[`er_${horizon}`], 2) },
                 { k: 'factor', label: 'RELATIVE FACTOR', sort: r => r[`factor_${horizon}`], fmt: r => r[`factor_${horizon}`] == null ? '—' : `${r[`factor_${horizon}`].toFixed(4)}×` },
-              ], matured, { sortKey: 'score' }) : h('div', { class: 'body mut' }, 'No fixed-horizon score matured on this day; accumulated factors carry forward.'))))),
-      panel('RELATIVE FACTOR PATH · LOG SCALE', '1.000× is neutral · evidence posts only after the selected horizon has elapsed', null,
-        h('div', { class: 'body' }, curves.length ? lineChart({ dates: dates.slice(0, slide + 1), series: curves, height: 330,
-          yfmt: (v, full) => `${(2 ** v).toFixed(full ? 3 : 1)}×`, zeroLine: true }) : h('span', { class: 'mut' }, 'No priced decisions yet.')),
+              ], matured, { sortKey: 'score' }) : h('div', { class: 'body mut' }, loadingRows ? 'Loading decisions…' : 'No fixed-horizon score matured on this day; the averages carry forward.'))))),
+      panel('AVERAGE RELATIVE FACTOR', `one panel per decision class · ${horizonDays}-day scores averaged, never compounded · 1.0000× is neutral`, null,
+        h('div', { class: 'body' }, facets.length
+          ? factorFacets({ dates: dates.slice(0, slide + 1), facets })
+          : h('span', { class: 'mut' }, 'No priced decisions yet.')),
         h('div', { class: 'body mut' }, A.methodology)),
       panel('DECISION EVIDENCE', 'average CAD excess return at fixed trading-day horizons · n = priced decisions', null,
         table(evidenceCols, A.summary, { sortKey: 'cls', desc: false }),
         h('div', { class: 'body mut' }, 'The 10–90% bands resample whole campaigns, preserving dependence between transactions in the same position. Wide bands mean the result depends heavily on which campaigns occurred.')),
       h('div', { class: 'row' },
-        panel('CONCENTRATION STRESS TEST', 'remove the highest-P&L campaigns and replay the remaining ledger', null, table([
-          { k: 'label', label: 'SCENARIO', l: true },
-          { k: 'return_', label: 'RETURN', fmt: r => signedPct(r.return_, 2) },
-          { k: 'excess', label: 'VS BENCH', fmt: r => signedPP(r.excess, 2) },
-          { k: 'end_value', label: 'END VALUE', fmt: r => money(r.end_value) },
-          { k: 'trades_removed', label: 'TRADES OUT' },
-        ], removals, { sortKey: 'n', desc: false })),
+        panel('CONCENTRATION STRESS TEST', 'remove the highest-P&L campaigns and replay the remaining ledger', null,
+          table([
+            { k: 'label', label: 'SCENARIO', l: true },
+            { k: 'return_', label: 'RETURN', fmt: r => signedPct(r.return_, 2) },
+            { k: 'excess', label: 'VS BENCH', fmt: r => signedPP(r.excess, 2) },
+            { k: 'end_value', label: 'END VALUE', fmt: r => money(r.end_value) },
+            { k: 'trades_removed', label: 'TRADES OUT' },
+          ], removals, { sortKey: 'n', desc: false }),
+          h('div', { class: 'body mut' }, 'Campaigns are ranked by dollars but the column is a rate, so removing a large winner that earned less than the portfolio average can raise the return. The freed cash is not reinvested; it sits idle for the rest of the history.')),
         panel('AVERAGING-DOWN ROBUSTNESS', `${AD.decisions} decisions in ${AD.campaigns} campaigns`, null,
           h('div', { class: 'stats' },
             stat('20D EST. RELATIVE EFFECT', signed(AD.impact_20d), 'trade notional × 20D excess return'),
@@ -730,16 +809,31 @@ const SCREEN = {
             { k: 'impact_20d', label: '20D EFFECT', fmt: r => signed(r.impact_20d) },
             { k: 'impact_60d', label: '60D EFFECT', fmt: r => signed(r.impact_60d) },
           ], AD.by_ticker, { sortKey: 'impact_60d' }))),
-      panel('CAMPAIGN P&L', `${C.ranked.length} total · options included in P&L but excluded from timing tests`, null, table([
-        { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym), r.option ? [' ', h('span', { class: 'tag' }, 'OPTION')] : null) },
-        { k: 'acct', label: 'ACCOUNT', l: true, sm: false },
-        { k: 'start', label: 'START' }, { k: 'end', label: 'END', fmt: r => r.end || 'OPEN' },
-        { k: 'decisions', label: 'DECISIONS' },
-        { k: 'avg_down', label: 'AVG↓', fmt: r => r.avg_down ? 'YES' : '—' },
-        { k: 'realized_cad', label: 'REALIZED', fmt: r => signed(r.realized_cad) },
-        { k: 'unrealized_cad', label: 'UNREALIZED', fmt: r => signed(r.unrealized_cad) },
-        { k: 'pnl_cad', label: 'P&L CAD', fmt: r => signed(r.pnl_cad) },
-      ], ranked, { sortKey: 'pnl_cad' })),
+      panel('CAMPAIGN P&L', `${C.ranked.length} total · options included in P&L but excluded from timing tests`, null,
+        table([
+          { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym),
+            r.option ? [' ', h('span', { class: 'tag' }, 'OPTION')] : null,
+            r.transferred ? [' ', h('span', { class: 'tag' }, 'TRANSFER')] : null) },
+          { k: 'acct', label: 'ACCOUNT', l: true, sm: false },
+          { k: 'start', label: 'START' }, { k: 'end', label: 'END', fmt: r => r.end || 'OPEN' },
+          { k: 'decisions', label: 'DECISIONS' },
+          { k: 'avg_down', label: 'AVG↓', fmt: r => r.avg_down ? 'YES' : '—' },
+          { k: 'realized_cad', label: 'REALIZED', fmt: r => signed(r.realized_cad) },
+          { k: 'unrealized_cad', label: 'UNREALIZED', fmt: r => signed(r.unrealized_cad) },
+          { k: 'pnl_cad', label: 'P&L CAD', fmt: r => signed(r.pnl_cad) },
+        ], ranked, { sortKey: 'pnl_cad' }),
+        A.coverage.transferred_campaigns ? h('div', { class: 'body mut' },
+          `${A.coverage.transferred_campaigns} campaigns end or begin at a share transfer between Wealthsimple accounts. A transfer moves shares at a stated book value rather than selling them, so P&L stops and restarts at that value instead of running through.`) : null),
+      panel('WHERE THE GAIN COMES FROM', 'campaign P&L is trades only · this ties it to the figure PERF reports', null,
+        h('div', { class: 'stats' },
+          stat('CAMPAIGN P&L', signed(RC.campaign_pnl), `${C.ranked.length} campaigns, realized + unrealized`),
+          stat('INCOME & COSTS', signed(RC.income_total), 'dividends, interest, fees, tax, FX conversions'),
+          stat('RESIDUAL', signed(RC.residual), 'cash drift and FX translation not attributable to a campaign'),
+          stat('PORTFOLIO GAIN', signed(RC.portfolio_gain), 'the same number PERF shows')),
+        table([
+          { k: 'kind', label: 'SOURCE', l: true },
+          { k: 'cad', label: 'CAD', fmt: r => signed(r.cad) },
+        ], RC.income, { sortKey: 'cad' })),
       panel('SCOPE & LIMITATIONS', 'frozen hypotheses · explicit exclusions', null,
         h('div', { class: 'body' },
           h('div', { class: 'amb' }, 'PRE-REGISTERED V1 QUESTIONS'),
@@ -747,7 +841,7 @@ const SCREEN = {
           h('ul', { class: 'plain', style: 'margin-top:8px;color:var(--muted);display:grid;gap:4px' },
             h('li', {}, 'Daily bars are canonical; hourly data is optional and currently not used.'),
             h('li', {}, `Options remain in actual P&L (${A.options.campaigns} campaigns, ${money(A.options.pnl_cad)}) but are excluded from equity timing tests without contract history.`),
-            h('li', {}, 'Accumulated factors are frequency-weighted across decisions. They are diagnostic evidence paths, not portfolio returns.'),
+            h('li', {}, 'The class averages weight every decision equally, regardless of size. They are diagnostic evidence paths, not portfolio returns.'),
             h('li', {}, 'The relative-effect dollars are exposure-weighted approximations, not a separately tradable portfolio return.'),
             h('li', {}, 'Shapley attribution, weekly-block bootstrap, and feasible timing randomization are not estimated in V1.'),
             h('li', {}, 'This audit reports what happened in this history. It never labels the result as proof of an edge.')))),

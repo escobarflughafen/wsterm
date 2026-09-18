@@ -118,11 +118,19 @@ th[aria-sort="ascending"]::after { content: " ▴"; }
 .audit-counter { justify-self: end; color: var(--muted); font-family: var(--mono); }
 .audit-scrub { width: 100%; accent-color: var(--amber); cursor: ew-resize; }
 .audit-keyhint { color: var(--muted); font: 9px var(--mono); text-align: center; letter-spacing: .03em; }
-.factor-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 1px; background: var(--line); margin-top: 8px; }
-.factor { border-top: 2px solid var(--factor-color); background: #080808; padding: 7px 9px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
-.factor > span { color: var(--ink2); font-size: 10px; text-transform: uppercase; }
-.factor > b { color: var(--ink); font: 700 16px var(--mono); }
-.factor > small { grid-column: 2; color: var(--muted); font-family: var(--mono); text-align: right; }
+/* one small multiple per decision class: the heading carries identity, so no 8-hue palette is needed */
+/* borders on the cards, not a 1px grid gap: a partly filled last row must not leave a grey block */
+.facets { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); background: #080808; }
+.facet { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px 9px 4px; display: grid; gap: 3px; }
+.facet > header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.facet > header > b { color: var(--ink2); font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+.facet > header > span { font: 9px var(--mono); }
+.facet-v { font: 700 16px var(--mono); }
+.facet > svg { width: 100%; height: 96px; display: block; touch-action: none; cursor: crosshair; }
+.facet-line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.facet-base { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.facet-cross { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.facet-dot { stroke: #080808; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .audit-tape { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; padding: 5px 8px; border: 1px solid var(--axis); background: #050505; font-family: var(--mono); }
 .audit-explain { border: 1px solid var(--axis); background: #070707; margin-bottom: 8px; }
 .audit-explain > h3 { margin: 0; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--amber); font-size: 11px; letter-spacing: .04em; }

@@ -6,6 +6,7 @@ fixed-horizon close-to-close excess returns; they never use the eventual exit.
 """
 import collections
 import json
+import math
 import os
 import random
 
@@ -72,18 +73,27 @@ def _quote_in_currency(value, ticker, currency, fx):
 
 
 def _campaign_bootstrap(rows, horizon, samples=1000):
-    """10-90% sensitivity range, resampling independent campaigns rather than fills."""
+    """10-90% sensitivity range, resampling whole campaigns rather than fills.
+
+    The resampled statistic has to be the one the table prints, so each draw pools every decision in
+    the drawn campaigns and averages those.  Averaging campaign means instead would estimate a
+    different quantity and let the point estimate fall outside its own band.
+    """
     key = f'er_{horizon}d'
     grouped = collections.defaultdict(list)
     for row in rows:
         if row.get(key) is not None:
             grouped[row['campaign']].append(row[key])
-    means = [sum(v) / len(v) for v in grouped.values() if v]
-    if not means:
+    clusters = [v for v in grouped.values() if v]
+    if not clusters:
         return dict(lo=None, hi=None, campaigns=0)
     rng = random.Random(20260917 + horizon)
-    draws = sorted(sum(rng.choice(means) for _ in means) / len(means) for _ in range(samples))
-    return dict(lo=_r(draws[int(samples * .1)]), hi=_r(draws[int(samples * .9)]), campaigns=len(means))
+    draws = []
+    for _ in range(samples):
+        pooled = [v for _ in clusters for v in rng.choice(clusters)]
+        draws.append(sum(pooled) / len(pooled))
+    draws.sort()
+    return dict(lo=_r(draws[int(samples * .1)]), hi=_r(draws[int(samples * .9)]), campaigns=len(clusters))
 
 
 def _summaries(decisions):
@@ -106,29 +116,39 @@ def _summaries(decisions):
 
 
 def _indices(decisions, days):
-    """Daily no-look-ahead indices: a score enters only when its forward horizon has matured."""
+    """Daily no-look-ahead evidence curves: a score enters only when its forward horizon matured.
+
+    The curve is the running *average* relative factor, not a compounded one.  A 60-day window
+    overlaps roughly sixty neighbours, so multiplying every matured score would count the same market
+    move dozens of times: it explodes at long horizons and bleeds away to volatility drag at short
+    ones.  Averaging in log space keeps the number what the reader thinks it is -- what the typical
+    decision of this class did against the benchmark, with `counts` saying how much evidence backs it.
+    """
     if not decisions:
-        return dict(dates=[], curves={}, base=100)
+        return dict(dates=[], curves={}, counts={}, base=1.0)
     first = min(d['date'] for d in decisions)
     dates = [d.strftime('%Y-%m-%d') for d in days if d >= pd.Timestamp(first)]
-    curves = {}
+    curves, counts = {}, {}
     for cls in ('ALL',) + ENTRY_CLASSES + EXIT_CLASSES:
         rows = decisions if cls == 'ALL' else [d for d in decisions if d['class'] == cls]
         if not rows:
             continue
-        curves[cls] = {}
+        curves[cls], counts[cls] = {}, {}
         for horizon in HORIZONS:
             by_date = collections.defaultdict(list)
             for d in rows:
-                if d[f'factor_{horizon}d'] is not None and d[f'end_{horizon}d']:
-                    by_date[d[f'end_{horizon}d']].append(d[f'factor_{horizon}d'])
-            level, values = 100.0, []
+                if d[f'factor_{horizon}d'] and d[f'end_{horizon}d']:
+                    by_date[d[f'end_{horizon}d']].append(math.log(d[f'factor_{horizon}d']))
+            total, n, values, seen = 0.0, 0, [], []
             for date in dates:
-                for factor in by_date.get(date, ()):
-                    level *= factor
-                values.append(_r(level, 3))
+                for logged in by_date.get(date, ()):
+                    total += logged
+                    n += 1
+                values.append(_r(math.exp(total / n), 5) if n else None)
+                seen.append(n)
             curves[cls][f'{horizon}d'] = values
-    return dict(dates=dates, curves=curves, base=100)
+            counts[cls][f'{horizon}d'] = seen
+    return dict(dates=dates, curves=curves, counts=counts, base=1.0)
 
 
 def _campaigns_and_decisions(acts, cal, benchmark, days):
@@ -138,8 +158,9 @@ def _campaigns_and_decisions(acts, cal, benchmark, days):
     cache = {}
 
     def market(ticker):
+        """(total-return series in CAD, as-traded close for comparing against ledger cost)."""
         if ticker not in cache:
-            cache[ticker] = (_series(ticker, cal, False, days)[0], _series(ticker, cal, True, days)[0], _mark_series(ticker, cal, days))
+            cache[ticker] = (_series(ticker, cal, True, days)[0], _mark_series(ticker, cal, days))
         return cache[ticker]
 
     ordered = sorted(enumerate(acts), key=lambda x: (x[1]['effective_date'], x[1]['effective_time'], x[0]))
@@ -156,7 +177,8 @@ def _campaigns_and_decisions(acts, cal, benchmark, days):
             cid = f"{a['account_type']}|{a['symbol'].strip()}|{a['currency']}|{s['number']}"
             s['campaign'] = dict(id=cid, acct=a['account_type'], sym=a['symbol'].strip(), cur=a['currency'],
                                  start=a['effective_date'], end=None, open=True, option=engine.is_option(a['symbol']),
-                                 decisions=0, avg_down=False, realized_cad=0.0, trade_ids=[])
+                                 decisions=0, avg_down=False, realized_cad=0.0, trade_ids=[],
+                                 transferred=a['activity_type'] == 'InternalSecurityTransfer')
             campaigns.append(s['campaign'])
 
         campaign = s['campaign']
@@ -167,11 +189,14 @@ def _campaigns_and_decisions(acts, cal, benchmark, days):
         mark = None
         if ticker:
             try:
-                local, cad, marks = market(ticker)
+                marks = market(ticker)[1]
                 # With no intraday bar, the last completed close is the only non-look-ahead mark.
                 i = marks.index.searchsorted(pd.Timestamp(a['effective_date']), side='left') - 1
                 if i >= 0 and not pd.isna(marks.iloc[i]):
-                    mark = _quote_in_currency(float(marks.iloc[i]), ticker, a['currency'], float(cal.fx.iloc[i]))
+                    # cal.fx is indexed on business days and `marks` on the benchmark's trading days,
+                    # so the rate has to be looked up by label; the positions drift apart every holiday.
+                    fx = float(cal.fx.asof(marks.index[i]))
+                    mark = _quote_in_currency(float(marks.iloc[i]), ticker, a['currency'], fx)
             except FileNotFoundError:
                 ticker = None
         status = None if avg_before is None or mark is None else ('WINNER' if mark >= avg_before else 'LOSER')
@@ -187,17 +212,15 @@ def _campaigns_and_decisions(acts, cal, benchmark, days):
                            ticker=ticker, cur=a['currency'], campaign=campaign['id'], cls=('ENTRY' if qty > 0 else 'EXIT'),
                            **{'class': cls}, state=status, quantity=abs(qty), notional_cad=_r(cal.to_cad(abs(net), a['currency'], a['effective_date']), 2),
                            price_quality='DAILY')
-                local, cad, _ = market(ticker)
+                cad = market(ticker)[0]
                 for horizon in HORIZONS:
                     ticker_ret, end_date = _forward_point(cad, a['effective_date'], horizon)
-                    local_ret, _ = _forward_point(local, a['effective_date'], horizon)
                     benchmark_ret, _ = _forward_point(bench_cad, a['effective_date'], horizon)
                     er = None if ticker_ret is None or benchmark_ret is None else (ticker_ret - benchmark_ret) * (1 if qty > 0 else -1)
                     factor = None
                     if ticker_ret is not None and benchmark_ret is not None and 1 + ticker_ret > 0 and 1 + benchmark_ret > 0:
                         relative = (1 + ticker_ret) / (1 + benchmark_ret)
                         factor = relative if qty > 0 else 1 / relative
-                    row[f'local_{horizon}d'] = _r(local_ret)
                     row[f'cad_{horizon}d'] = _r(ticker_ret)
                     row[f'benchmark_{horizon}d'] = _r(benchmark_ret)
                     row[f'er_{horizon}d'] = _r(er)
@@ -213,18 +236,28 @@ def _campaigns_and_decisions(acts, cal, benchmark, days):
         if qty > 0:
             s['q'] += qty
             s['cost'] += (-net if a['activity_type'] == 'Trade' else abs(net))
-        else:
-            sold = min(-qty, max(s['q'], 0.0))
-            avg = s['cost'] / s['q'] if s['q'] > 1e-9 else 0.0
-            if a['activity_type'] == 'Trade' and campaign:
-                campaign['realized_cad'] += cal.to_cad(net - avg * sold, a['currency'], a['effective_date'])
-            s['cost'] -= avg * sold
-            s['q'] += qty
-            if s['q'] <= 1e-9:
-                s['q'] = s['cost'] = 0.0
-                if campaign:
-                    campaign.update(end=a['effective_date'], open=False)
-                s['campaign'] = None
+            continue
+
+        # A transfer out may drain a sibling book: early US stocks were held under the CAD key, so
+        # taking the shares only off this key would leave a position the portfolio does not hold.
+        drained = key
+        if a['activity_type'] == 'InternalSecurityTransfer' and s['q'] < -qty - 1e-9:
+            siblings = [k for k, v in states.items() if k[:2] == key[:2] and k != key and v['q'] >= -qty - 1e-9]
+            drained = siblings[0] if siblings else key
+        t = states[drained]
+        sold = min(-qty, max(t['q'], 0.0))
+        avg = t['cost'] / t['q'] if t['q'] > 1e-9 else 0.0
+        if a['activity_type'] == 'Trade' and campaign:
+            campaign['realized_cad'] += cal.to_cad(net - avg * sold, a['currency'], a['effective_date'])
+        if t['campaign'] and a['activity_type'] == 'InternalSecurityTransfer':
+            t['campaign']['transferred'] = True   # its P&L stops at a stated book value, not a sale
+        t['cost'] -= avg * sold
+        t['q'] += qty
+        if t['q'] <= 1e-9:
+            t['q'] = t['cost'] = 0.0
+            if t['campaign']:
+                t['campaign'].update(end=a['effective_date'], open=False)
+            t['campaign'] = None
 
     # Mark open campaign value. Contract history is deliberately not invented: open options stay at cost.
     for key, s in states.items():
@@ -257,7 +290,8 @@ def _concentration(campaigns, acts, cal, benchmark):
     base = engine.replay(acts, cal)
     actual_twr = float(engine.twr(base['total'], base['contrib']).iloc[-1] - 1)
     bench_twr = float(engine.benchmark_value(benchmark, base['contrib'], cal)[1].iloc[-1] - 1)
-    removals = []
+    removals = [dict(n=0, campaigns=0, return_=_r(actual_twr), excess=_r(actual_twr - bench_twr),
+                     end_value=_r(float(base['total'].iloc[-1]), 2), trades_removed=0, clipped=0)]
     for n in (1, 3, 5):
         picked = ranked[:n]
         ids = {tid for c in picked for tid in c['trade_ids']}
@@ -269,7 +303,8 @@ def _concentration(campaigns, acts, cal, benchmark):
         ret = float(engine.twr(total, contrib).iloc[-1] - 1)
         removals.append(dict(n=n, campaigns=len(picked), return_=_r(ret), excess=_r(ret - bench_twr),
                              end_value=_r(total.iloc[-1], 2), trades_removed=removed, clipped=len(clipped)))
-    return dict(ranked=ranked, positive_pnl=_r(positive, 2), top_positive_share=shares,
+    public = [{k: v for k, v in c.items() if k != 'trade_ids'} for c in ranked]  # ids are replay input, not display
+    return dict(ranked=public, positive_pnl=_r(positive, 2), top_positive_share=shares,
                 actual_return=_r(actual_twr), benchmark_return=_r(bench_twr), actual_excess=_r(actual_twr - bench_twr), removals=removals)
 
 
@@ -291,7 +326,34 @@ def _averaging_down(decisions, campaigns):
                 campaign_pnl_without=_r(pd.Series(without).median(), 2) if without else None)
 
 
-def build(acts, cal=None, benchmark=None):
+def _reconciliation(campaigns, acts, cal, gain=None):
+    """Campaign P&L covers trades only.  Publish the rest of the gain so two screens cannot disagree
+    silently: dividends, fees and FX conversions never belong to a campaign, and whatever is still
+    unexplained after those is shown as a residual rather than quietly absorbed.  `gain` is the figure
+    PERF publishes; reconciling against anything else would just move the argument somewhere else."""
+    if gain is None:
+        replay = engine.replay(acts, cal)
+        gain = float(replay['total'].iloc[-1] - replay['contrib'].iloc[-1])
+    income = collections.Counter()
+    for a in acts:
+        net = float(a['net_cash_amount'] or 0)
+        if net and a['activity_type'] not in ('Trade', 'MoneyMovement', 'InternalSecurityTransfer'):
+            income[a['activity_type']] += cal.to_cad(net, a['currency'], a['effective_date'])
+    campaign_pnl = sum(c['pnl_cad'] for c in campaigns)
+    other = sum(income.values())
+    return dict(campaign_pnl=_r(campaign_pnl, 2), portfolio_gain=_r(gain, 2), income_total=_r(other, 2),
+                residual=_r(gain - campaign_pnl - other, 2),
+                income=[dict(kind=k, cad=_r(v, 2)) for k, v in income.most_common()])
+
+
+def _public(decisions):
+    """The scrubber reads these; everything else was intermediate work and stays out of the payload."""
+    keep = ('date', 'sym', 'campaign', 'cls', 'class', 'notional_cad')
+    horizon_keys = [f'{name}_{h}d' for h in HORIZONS for name in ('cad', 'benchmark', 'er', 'factor', 'end')]
+    return [{k: d[k] for k in keep + tuple(horizon_keys)} for d in decisions]
+
+
+def build(acts, cal=None, benchmark=None, gain=None):
     """Return JSON-safe V1 audit results using only cached daily market data."""
     benchmark = benchmark or engine.CFG['benchmarks'][0]
     cal = cal or engine.Calendar(acts[0]['effective_date'])
@@ -301,13 +363,15 @@ def build(acts, cal=None, benchmark=None):
     priced = sum(d['price_quality'] != 'MISSING' for d in decisions)
     options = [c for c in campaigns if c['option']]
     return dict(
-        version=1, benchmark=benchmark, clock='DAILY', horizons=list(HORIZONS),
-        methodology='Daily close-to-close CAD excess return; pre-trade state uses the previous completed close; exits use benchmark minus security. When a horizon elapses, the accumulated series multiplies a positive relative-wealth factor: security/benchmark for buys, benchmark/security for sells. The indices are descriptive, not evidence of independent bets.',
+        version=2, benchmark=benchmark, clock='DAILY', horizons=list(HORIZONS),
+        methodology='Daily close-to-close CAD excess return; pre-trade state uses the previous completed close; exits use benchmark minus security. Each matured score is one relative-wealth factor: security/benchmark for buys, benchmark/security for sells. The curve averages those factors in log space rather than compounding them, because overlapping windows are the same market move counted many times. It describes the typical decision of a class, not a return anyone earned.',
         hypotheses=json.load(open(HYPOTHESES_PATH)),
         coverage=dict(decisions=len(decisions), daily_priced=priced, daily_pct=_r(priced / len(decisions), 3) if decisions else None,
-                      missing=len(decisions) - priced, hourly_priced=0, options_excluded=len(options)),
-        decisions=decisions, summary=_summaries(decisions), indices=_indices(decisions, days),
+                      missing=len(decisions) - priced, hourly_priced=0, options_excluded=len(options),
+                      transferred_campaigns=sum(c['transferred'] for c in campaigns)),
+        decisions=_public(decisions), summary=_summaries(decisions), indices=_indices(decisions, days),
         concentration=_concentration(campaigns, acts, cal, benchmark),
         averaging_down=_averaging_down(decisions, campaigns),
+        reconciliation=_reconciliation(campaigns, acts, cal, gain),
         options=dict(campaigns=len(options), pnl_cad=_r(sum(c['pnl_cad'] for c in options), 2), timing_excluded=True),
     )

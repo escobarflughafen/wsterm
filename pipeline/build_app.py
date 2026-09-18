@@ -370,10 +370,15 @@ def main():
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
         options=open_options,
-        audit=audit.build(acts, cal),
+        audit=audit.build(acts, cal, gain=total_now - contrib_now),
         events=events,
     )
     os.makedirs(APP, exist_ok=True)
+    # The 900-odd audit decision rows are two thirds of the payload and only one screen reads them,
+    # so they ship as their own file that AUD fetches on first open.
+    decisions = data['audit'].pop('decisions')
+    with open(os.path.join(APP, 'audit_decisions.json'), 'w') as f:
+        json.dump(decisions, f, separators=(',', ':'), allow_nan=False)
     with open(os.path.join(APP, 'data.json'), 'w') as f:
         json.dump(data, f, separators=(',', ':'), allow_nan=False)  # NaN is not JSON: fail here, not in the browser
     s = data['summary']

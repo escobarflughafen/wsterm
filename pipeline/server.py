@@ -171,6 +171,15 @@ def data_json():
     return FileResponse(path, media_type='application/json')
 
 
+@app.get('/audit_decisions.json')
+def audit_decisions():
+    """Split out of data.json: only the decision-audit screen needs these rows."""
+    path = BUILD_DIR / 'audit_decisions.json'
+    if not path.exists():
+        return JSONResponse([], status_code=404)
+    return FileResponse(path, media_type='application/json')
+
+
 @app.get('/prices/{ticker}.csv')
 def price_csv(ticker: str):
     path = PUBLIC_MARKET_DIR / 'prices' / f'{ticker}.csv'
