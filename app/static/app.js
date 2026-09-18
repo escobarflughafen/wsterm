@@ -820,7 +820,7 @@ function scheduleSim() {
 
 // ---------- how to export from Wealthsimple ----------
 const EXPORT_STEPS = [
-  { img: 'Screenshot 2026-09-17 at 1.10.37 PM.png', title: 'Open Activity and start the export',
+  { img: 'guide-1-activity.png', title: 'Open Activity and start the export',
     lines: ['In the Wealthsimple desktop web app, select the clock icon in the left sidebar to open **Activity**.',
             'On the Activity page, select **Download activities** above the transaction list.'] },
   { img: 'guide-2-period.png', title: 'Choose the period',
@@ -831,7 +831,7 @@ const EXPORT_STEPS = [
     lines: ['Tick **All accounts** so every account lands in one file (TFSA, FHSA, RRSP, Non-registered, Crypto).',
             'Expand **Closed / Archived** if you once held accounts that are now closed — their trades still affect your history.',
             'Select **Download CSV** and wait for the download to finish.'] },
-  { img: 'Screenshot 2026-09-17 at 1.14.28 PM.png', title: 'Upload the downloaded CSV',
+  { img: 'guide-4-download.png', title: 'Upload the downloaded CSV',
     lines: ['Open your browser downloads and find the newest **activities-export-YYYY-MM-DD.csv** file.',
             'Drag that file into **DROP CSV EXPORTS HERE** above. If you also have a **holdings-report-YYYY-MM-DD.csv**, upload both together so the app can check current positions against the activity ledger.'] },
 ];
