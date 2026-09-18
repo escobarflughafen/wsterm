@@ -533,36 +533,60 @@ const SCREEN = {
     const A = D.audit;
     if (!A) return [h('div', { class: 'skeleton' }, 'REBUILD DATA TO GENERATE THE DECISION AUDIT')];
     const C = A.concentration, AD = A.averaging_down, horizon = state.auditHorizon;
-    const label = s => s.replaceAll('_', ' ');
+    const decisionName = s => ({
+      OPEN: 'INITIAL ENTRY', ADD_TO_LOSER: 'ADD BELOW COST', ADD_TO_WINNER: 'ADD ABOVE COST',
+      REDUCE_LOSER: 'PARTIAL EXIT BELOW COST', REDUCE_WINNER: 'PARTIAL EXIT ABOVE COST',
+      CLOSE_LOSER: 'FULL EXIT BELOW COST', CLOSE_WINNER: 'FULL EXIT ABOVE COST',
+    })[s] || s.replaceAll('_', ' ');
+    const hypothesisName = s => ({
+      add_to_loser: 'ADD BELOW COST', add_to_winner: 'ADD ABOVE COST', initial_entry: 'INITIAL ENTRY',
+      partial_profit_taking: 'PARTIAL EXIT ABOVE COST', full_exit: 'FULL EXIT', short_horizon_exit: 'SHORT-HORIZON EXIT',
+      concentration_top3: 'TOP-3 CONCENTRATION', concentration_top5: 'TOP-5 CONCENTRATION',
+    })[s] || s.replaceAll('_', ' ');
+    const band = (r, n) => r[`lo_${n}d`] == null ? '—' : `${(r[`lo_${n}d`] * 100).toFixed(2)}% → ${(r[`hi_${n}d`] * 100).toFixed(2)}%`;
     const colors = ['var(--s1)', 'var(--s2)', 'var(--s3)', '#8f6bd1', '#d06b45', '#38a89d', '#a6a63d'];
     const curves = Object.entries(A.indices.curves).map(([name, byH], i) => ({
-      name: label(name), short: name.split('_').slice(0, 2).join(' '), color: colors[i % colors.length], values: byH[horizon],
+      name: decisionName(name), short: decisionName(name), color: colors[i % colors.length], values: byH[horizon],
     }));
     const evidenceCols = [
-      { k: 'cls', label: 'DECISION', l: true, fmt: r => label(r.cls) },
+      { k: 'cls', label: 'DECISION CLASS', l: true, fmt: r => decisionName(r.cls) },
       { k: 'decisions', label: 'N' }, { k: 'campaigns', label: 'CAMPAIGNS' },
-      ...A.horizons.map(n => ({ k: `er_${n}d`, label: `${n}D EXCESS`, fmt: r => h('span', {}, signedPct(r[`er_${n}d`], 2), h('span', { class: 'mut' }, ` · ${r[`n_${n}d`]}`)) })),
+      ...A.horizons.map(n => ({ k: `er_${n}d`, label: `${n}D AVG EXCESS`, fmt: r => h('span', {}, signedPct(r[`er_${n}d`], 2), h('span', { class: 'mut' }, ` · n=${r[`n_${n}d`]}`)) })),
+      { k: 'band20', sm: false, label: '20D 10–90% BAND', sort: r => r.lo_20d, fmt: r => band(r, 20) },
+      { k: 'band60', sm: false, label: '60D 10–90% BAND', sort: r => r.lo_60d, fmt: r => band(r, 60) },
     ];
     const removals = C.removals.map(r => ({ ...r, label: `WITHOUT TOP ${r.n}` }));
     const ranked = C.ranked.slice(0, 30);
+    const explain = [
+      ['CAMPAIGN', 'One continuous position in one account: it starts when shares move from zero to positive and ends when they return to zero. Transactions inside it are related, not independent bets.'],
+      ['ABOVE / BELOW COST', 'The previous completed daily close is compared with average cost immediately before the decision. This avoids using a close that occurred after the trade.'],
+      ['EXCESS RETURN', `Security return in CAD minus ${A.benchmark.replace('.TO', '')} return over the same fixed horizon. Positive means the decision beat the benchmark.`],
+      ['EXIT SCORE', 'For a sale the sign is reversed: benchmark return minus the sold security return. Positive means selling added relative value; negative means holding would have done better.'],
+      ['CUMULATIVE INDEX', 'Starts at 100 and compounds the observed excess return of each decision class. It describes this history; overlapping decisions do not become independent evidence.'],
+      ['10–90% BAND', 'Campaigns are resampled as blocks. This is a concentration-sensitivity range, not a statistical confidence interval and not a probability of skill.'],
+    ];
     return [
       h('div', { class: 'stats' },
-        stat('OBSERVED RETURN', signedPct(C.actual_return, 2), 'daily portfolio TWR'),
-        stat(A.benchmark.replace('.TO', ''), signedPct(C.benchmark_return, 2), 'same deposits, CAD total return'),
-        stat('OBSERVED EXCESS', signedPP(C.actual_excess, 2), 'descriptive, not an edge claim'),
+        stat('PORTFOLIO TWR', signedPct(C.actual_return, 2), 'daily, cash flows removed'),
+        stat(`${A.benchmark.replace('.TO', '')} RETURN`, signedPct(C.benchmark_return, 2), 'CAD total return over the same period'),
+        stat('EXCESS VS BENCHMARK', signedPP(C.actual_excess, 2), 'portfolio TWR minus benchmark return'),
         stat('TOP 1 / POSITIVE P&L', pct(C.top_positive_share['1'], 0), 'campaign concentration'),
         stat('TOP 3 / POSITIVE P&L', pct(C.top_positive_share['3'], 0), `${C.ranked.length} campaigns`),
         stat('DAILY COVERAGE', pct(A.coverage.daily_pct, 1), `${A.coverage.daily_priced}/${A.coverage.decisions} equity decisions`)),
+      panel('HOW TO READ THIS AUDIT', 'definitions used throughout this screen', null,
+        h('div', { class: 'tw help' }, h('table', {}, h('tbody', {}, explain.map(([term, meaning]) => h('tr', {},
+          h('td', { class: 'amb', style: 'vertical-align:top;white-space:nowrap' }, term),
+          h('td', { style: 'white-space:normal' }, meaning))))))),
       panel('CUMULATIVE DECISION INDEX', '100 = starting level · compounds fixed-horizon excess returns by decision class',
         seg(A.horizons.map(n => `${n}d`), horizon, x => { state.auditHorizon = x; render(); }),
         h('div', { class: 'body' }, curves.length ? lineChart({ dates: A.indices.dates, series: curves, height: 330,
           yfmt: (v, full) => full ? v.toFixed(2) : v.toFixed(0), zeroLine: false }) : h('span', { class: 'mut' }, 'No priced decisions yet.')),
         h('div', { class: 'body mut' }, A.methodology)),
-      panel('DECISION EVIDENCE', 'mean CAD excess return · exits are benchmark minus sold security · count follows each score', null,
+      panel('DECISION EVIDENCE', 'average CAD excess return at fixed trading-day horizons · n = priced decisions', null,
         table(evidenceCols, A.summary, { sortKey: 'cls', desc: false }),
-        h('div', { class: 'body mut' }, 'Campaign bootstrap 10–90% ranges are retained in the audit payload. Transactions within one campaign are not treated as independent discoveries.')),
+        h('div', { class: 'body mut' }, 'The 10–90% bands resample whole campaigns, preserving dependence between transactions in the same position. Wide bands mean the result depends heavily on which campaigns occurred.')),
       h('div', { class: 'row' },
-        panel('CONCENTRATION REMOVAL REPLAY', 'entire campaigns removed; remaining ledger is replayed', null, table([
+        panel('CONCENTRATION STRESS TEST', 'remove the highest-P&L campaigns and replay the remaining ledger', null, table([
           { k: 'label', label: 'SCENARIO', l: true },
           { k: 'return_', label: 'RETURN', fmt: r => signedPct(r.return_, 2) },
           { k: 'excess', label: 'VS BENCH', fmt: r => signedPP(r.excess, 2) },
@@ -571,18 +595,18 @@ const SCREEN = {
         ], removals, { sortKey: 'n', desc: false })),
         panel('AVERAGING-DOWN ROBUSTNESS', `${AD.decisions} decisions in ${AD.campaigns} campaigns`, null,
           h('div', { class: 'stats' },
-            stat('20D RELATIVE EFFECT', signed(AD.impact_20d), 'notional × excess return'),
-            stat('60D RELATIVE EFFECT', signed(AD.impact_60d), 'notional × excess return'),
-            stat('MEDIAN CAMPAIGN P&L', signed(AD.campaign_pnl_with), 'campaigns containing add-to-loser'),
-            stat('WITHOUT AVG DOWN', signed(AD.campaign_pnl_without), 'other campaigns')),
+            stat('20D EST. RELATIVE EFFECT', signed(AD.impact_20d), 'trade notional × 20D excess return'),
+            stat('60D EST. RELATIVE EFFECT', signed(AD.impact_60d), 'trade notional × 60D excess return'),
+            stat('MEDIAN CAMPAIGN P&L', signed(AD.campaign_pnl_with), 'campaigns containing an add below cost'),
+            stat('NO ADD BELOW COST', signed(AD.campaign_pnl_without), 'median of other campaigns')),
           table([
             { k: 'sym', label: 'TICKER', l: true, fmt: r => h('span', { class: 'amb', raw: true }, r.sym) },
             { k: 'decisions', label: 'N' },
             { k: 'impact_20d', label: '20D EFFECT', fmt: r => signed(r.impact_20d) },
             { k: 'impact_60d', label: '60D EFFECT', fmt: r => signed(r.impact_60d) },
           ], AD.by_ticker, { sortKey: 'impact_60d' }))),
-      panel('CAMPAIGNS', `${C.ranked.length} total · options included in P&L but excluded from timing tests`, null, table([
-        { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym), r.option ? h('span', { class: 'tag' }, ' OPTION') : null) },
+      panel('CAMPAIGN P&L', `${C.ranked.length} total · options included in P&L but excluded from timing tests`, null, table([
+        { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym), r.option ? [' ', h('span', { class: 'tag' }, 'OPTION')] : null) },
         { k: 'acct', label: 'ACCOUNT', l: true, sm: false },
         { k: 'start', label: 'START' }, { k: 'end', label: 'END', fmt: r => r.end || 'OPEN' },
         { k: 'decisions', label: 'DECISIONS' },
@@ -591,10 +615,16 @@ const SCREEN = {
         { k: 'unrealized_cad', label: 'UNREALIZED', fmt: r => signed(r.unrealized_cad) },
         { k: 'pnl_cad', label: 'P&L CAD', fmt: r => signed(r.pnl_cad) },
       ], ranked, { sortKey: 'pnl_cad' })),
-      panel('AUDIT BOUNDARIES', 'frozen hypotheses · explicit exclusions', null,
+      panel('SCOPE & LIMITATIONS', 'frozen hypotheses · explicit exclusions', null,
         h('div', { class: 'body' },
-          h('div', {}, A.hypotheses.join(' · ')),
-          h('div', { class: 'mut', style: 'margin-top:6px' }, `Options: ${A.options.campaigns} campaigns / ${money(A.options.pnl_cad)} P&L; timing excluded. Hourly coverage: ${A.coverage.hourly_priced}; daily is canonical. Attribution/Shapley and feasible timing randomization are not inferred by this V1 index.`))),
+          h('div', { class: 'amb' }, 'PRE-REGISTERED V1 QUESTIONS'),
+          h('div', {}, A.hypotheses.map(x => { const [id, name] = x.split(' '); return h('span', { style: 'display:inline-block;margin:3px 14px 3px 0' }, `${id} · `, hypothesisName(name)); })),
+          h('ul', { class: 'plain', style: 'margin-top:8px;color:var(--muted);display:grid;gap:4px' },
+            h('li', {}, 'Daily bars are canonical; hourly data is optional and currently not used.'),
+            h('li', {}, `Options remain in actual P&L (${A.options.campaigns} campaigns, ${money(A.options.pnl_cad)}) but are excluded from equity timing tests without contract history.`),
+            h('li', {}, 'The relative-effect dollars are exposure-weighted approximations, not a separately tradable portfolio return.'),
+            h('li', {}, 'Shapley attribution, weekly-block bootstrap, and feasible timing randomization are not estimated in V1.'),
+            h('li', {}, 'This audit reports what happened in this history. It never labels the result as proof of an edge.')))),
     ];
   },
 
