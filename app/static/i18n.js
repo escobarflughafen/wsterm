@@ -180,7 +180,7 @@ const ZH = {
   'Select **Download CSV** and wait for the download to finish.': '点击 **Download CSV**，并等待下载完成。',
   'Open your browser downloads and find the newest **activities-export-YYYY-MM-DD.csv** file.': '打开浏览器下载列表，找到最新的 **activities-export-YYYY-MM-DD.csv** 文件。',
   'Drag that file into **DROP CSV EXPORTS HERE** above. If you also have a **holdings-report-YYYY-MM-DD.csv**, upload both together so the app can check current positions against the activity ledger.': '将该文件拖入上方的 **DROP CSV EXPORTS HERE**。如果还有 **holdings-report-YYYY-MM-DD.csv**，请一并上传，以便应用根据交易账本核对当前持仓。',
-  'Exports overlap safely: rows you already have are skipped, so a monthly full-history export is the simplest routine.': '导出区间重叠没问题：已有的记录会被跳过，因此每月导出一次完整历史是最省心的做法。',
+  'Exports overlap safely: inside the range an export covers it is treated as the truth, so a row the broker later corrects (a settled trade, an added FX rate) replaces the old version instead of doubling up. Rows outside that range are untouched, so a monthly full-history export is the simplest routine.': '导出区间重叠没问题：在导出覆盖的范围内以其为准，券商后续更正的记录（交易结算、补充汇率）会替换旧版本而不会重复计入；范围之外的记录保持不变，因此每月导出一次完整历史是最省心的做法。',
 
   // IMP
   'ACTIVITY ROWS': '交易记录行数', 'nothing imported yet': '尚未导入', 'HOLDINGS AS OF': '持仓截至', 'latest holdings report': '最新持仓报告',

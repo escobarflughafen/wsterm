@@ -891,7 +891,7 @@ function exportGuide() {
       h('figcaption', {}, h('span', { class: 'step' }, i + 1), h('span', { class: 'amb' }, step.title),
         h('ul', { class: 'plain' }, step.lines.map(l => h('li', {}, bold(l))))),
       h('img', { src: `/static/img/${step.img}`, alt: step.title, loading: 'lazy' })))),
-    h('div', { class: 'body mut' }, 'Exports overlap safely: rows you already have are skipped, so a monthly full-history export is the simplest routine.'));
+    h('div', { class: 'body mut' }, 'Exports overlap safely: inside the range an export covers it is treated as the truth, so a row the broker later corrects (a settled trade, an added FX rate) replaces the old version instead of doubling up. Rows outside that range are untouched, so a monthly full-history export is the simplest routine.'));
 }
 
 // ---------- import ----------

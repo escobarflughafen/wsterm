@@ -7,9 +7,16 @@ Layout under EXPORTS_DIR:
   staging/<id>/      previews waiting for commit (auto-expire)
   inbox/             drop files here (scp, sync); the next rebuild or scheduler tick imports them
 
-Activity exports can overlap or cover partial ranges, so merging is multiset-aware: a row that appears
-m times on file and k_i times in uploaded file i ends up max(m, k_1, k_2, ...) times. Identical legitimate
-rows (two same-second fills) survive, and overlapping files uploaded together are not double counted.
+The broker restates rows between exports (a pending trade settles, an FX rate is appended, a price
+convention is corrected), so a newer export is treated as the truth for the window it covers rather than
+added to what is already on file:
+
+  * identity  = date, time, account, type, symbol, quantity, cash amount — the fields a restatement keeps.
+    Volatile fields (description, settlement date, unit price, name) are taken from the newest export.
+  * coverage  = per account, the date range the uploaded files span. Existing rows inside that range are
+    replaced by what the export says; rows outside it (older history, other accounts) are untouched.
+  * duplicates = counted per file, so two genuine same-second fills both survive, while the same fill
+    re-exported twice stays one row.
 """
 import collections, csv, datetime as dt, io, json, re, shutil, time, uuid
 from pathlib import Path
@@ -134,26 +141,58 @@ def parse_holdings(text, filename=''):
     return rows, asof, errors
 
 
+IDENTITY_COLUMNS = ['effective_date', 'effective_time', 'account_id', 'account_type', 'activity_type',
+                    'activity_sub_type', 'symbol', 'currency', 'quantity', 'net_cash_amount']
+
+
 def row_key(row):
-    return tuple(row[c] for c in ACTIVITY_COLUMNS)
+    """What survives a restatement. Description, settlement date and unit price can all change later."""
+    return tuple(row[c] for c in IDENTITY_COLUMNS)
+
+
+def _coverage(rows):
+    """Per account, the date range an export covers — the window it is authoritative for."""
+    span = {}
+    for r in rows:
+        acct, d = r['account_id'], r['effective_date']
+        lo, hi = span.get(acct, (d, d))
+        span[acct] = (min(lo, d), max(hi, d))
+    return span
 
 
 def merge_activities(existing, incoming_files):
-    """incoming_files: list of row lists, one per uploaded file."""
-    have = collections.Counter(map(row_key, existing))
-    target, by_key = collections.Counter(have), {}
+    """incoming_files: list of row lists, one per uploaded file (newest last wins on restatements)."""
+    covered, incoming, by_key = {}, collections.Counter(), {}
     for rows in incoming_files:
-        for key, n in collections.Counter(map(row_key, rows)).items():
-            target[key] = max(target[key], n)
-        by_key.update((row_key(r), r) for r in rows)
-    merged = list(existing)
-    added = 0
-    for key, n in target.items():
-        for _ in range(n - have.get(key, 0)):
-            merged.append(by_key[key])
-            added += 1
+        for acct, (lo, hi) in _coverage(rows).items():
+            have_lo, have_hi = covered.get(acct, (lo, hi))
+            covered[acct] = (min(have_lo, lo), max(have_hi, hi))
+        counts = collections.Counter(map(row_key, rows))
+        for key, n in counts.items():
+            incoming[key] = max(incoming[key], n)          # same file twice must not double a fill
+        by_key.update((row_key(r), r) for r in rows)        # later files restate earlier ones
+
+    def in_window(row):
+        window = covered.get(row['account_id'])
+        return bool(window) and window[0] <= row['effective_date'] <= window[1]
+
+    kept = [r for r in existing if not in_window(r)]
+    replaced_rows = [r for r in existing if in_window(r)]
+    replaced = collections.Counter(map(row_key, replaced_rows))
+
+    merged = list(kept)
+    for key, n in incoming.items():
+        merged.extend([by_key[key]] * n)
     merged.sort(key=lambda r: (r['effective_date'], r['effective_time']))
-    return merged, added, sum(len(rows) for rows in incoming_files) - added
+
+    added = sum(max(0, n - replaced.get(key, 0)) for key, n in incoming.items())
+    removed = sum(max(0, n - incoming.get(key, 0)) for key, n in replaced.items())
+    restated = sum(1 for key, n in incoming.items() if replaced.get(key)
+                   and any(by_key[key][c] != r[c] for r in replaced_rows if row_key(r) == key
+                           for c in ACTIVITY_COLUMNS))
+    unchanged = sum(len(rows) for rows in incoming_files) - added
+    return merged, added, unchanged, dict(removed=removed, restated=restated,
+                                          replaced=len(replaced_rows), kept_outside=len(kept))
 
 
 def _write_csv_atomic(path: Path, rows, columns):
@@ -277,7 +316,7 @@ def preview(files):
             entry['errors'].append(str(e))
         report.append(entry)
 
-    merged, added, dupes = merge_activities(existing, incoming_acts)
+    merged, added, dupes, changes = merge_activities(existing, incoming_acts)
     hold_rows = holdings_pick[0] if holdings_pick else None
     if hold_rows is None and HOLDINGS.exists():
         hold_rows = parse_holdings(HOLDINGS.read_text())[0]
@@ -286,7 +325,7 @@ def preview(files):
     after = summarize_activities(merged)
     new_symbols = sorted({(r['symbol'], r['currency']) for rows in incoming_acts for r in rows if r['symbol']} -
                          {(r['symbol'], r['currency']) for r in existing if r['symbol']})
-    summary = dict(id=pid, files=report, added=added, duplicates=dupes, before=before, after=after,
+    summary = dict(id=pid, files=report, added=added, duplicates=dupes, **changes, before=before, after=after,
                    holdings_asof=holdings_pick[1] if holdings_pick else None, current_holdings_asof=current_asof,
                    new_symbols=[f'{s} {c}' for s, c in new_symbols], reconciliation=recon[:30],
                    reconciliation_total=len(recon), committable=any(f['ok'] for f in report))
@@ -319,7 +358,7 @@ def commit(pid, force_holdings=False):
         dest = inside(EXPORTS_DIR, UPLOADS / f'{stamp}-{safe_name(f.name[3:], "upload.csv")}')
         shutil.copy2(f, dest)
         archived.append(dest.name)
-    merged, added, dupes = merge_activities(existing, incoming)
+    merged, added, dupes, changes = merge_activities(existing, incoming)
     if incoming:
         _write_csv_atomic(ACTIVITIES, merged, ACTIVITY_COLUMNS)
     holdings_updated = False
@@ -333,7 +372,7 @@ def commit(pid, force_holdings=False):
     new_symbols = {(r['symbol'], r['currency']) for rows in incoming for r in rows if r['symbol']} - \
                   {(r['symbol'], r['currency']) for r in existing if r['symbol']}
     shutil.rmtree(stage, ignore_errors=True)
-    return dict(added=added, duplicates=dupes, holdings_updated=holdings_updated, archived=archived,
+    return dict(added=added, duplicates=dupes, **changes, holdings_updated=holdings_updated, archived=archived,
                 new_symbols=len(new_symbols), activities=summarize_activities(merged), holdings_asof=holdings_asof())
 
 
