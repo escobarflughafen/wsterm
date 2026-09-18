@@ -198,6 +198,14 @@ cmd_deploy() {
   compose "$inst" up -d --remove-orphans
   ok "image portfolio-terminal:${TAG}"
 
+  section "Recompute"
+  # New code can change how data.json is computed; the app only builds it when missing, so force one now.
+  if compose "$inst" exec -T portfolio python pipeline/build_app.py 2>&1 | tail -1; then
+    ok "data.json rebuilt with this commit"
+  else
+    warn "rebuild skipped (no exports imported yet?)"
+  fi
+
   section "Verify"
   if wait_healthy "$inst" && verify "$inst"; then
     ok "healthy"
