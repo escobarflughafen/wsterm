@@ -648,9 +648,9 @@ const SCREEN = {
           h('div', { class: 'audit-date' }, h('span', { class: 'mut' }, 'EVIDENCE AS OF'), h('b', {}, slideDate),
             h('span', { class: 'audit-counter' }, `${slide + 1} / ${dates.length}`)),
           h('input', { class: 'audit-scrub', type: 'range', min: 0, max: Math.max(0, dates.length - 1), value: slide,
-            'aria-label': 'Replay day', title: 'Arrow keys or Vim h/l move one day · Shift moves five',
+            'aria-label': 'Replay day', title: 'Anywhere on AUD: arrows move one day, Shift+arrows move five, Vim H/L move one',
             onchange: e => setAuditDay(e.target.value), onkeydown: auditSliderKey }),
-          h('div', { class: 'audit-keyhint' }, 'FOCUSED SLIDER: ←/→ OR VIM h/l = 1 DAY · SHIFT = 5 · HOME/END = EDGES'),
+          h('div', { class: 'audit-keyhint' }, 'ANYWHERE ON AUD: ←/→ = 1 DAY · SHIFT+←/→ = 5 · VIM H/L = 1 · SLIDER ALSO: h/l, HOME/END'),
           h('div', { class: 'factor-strip' }, factors.map(f => h('div', { class: 'factor', style: `--factor-color:${f.color}` },
             h('span', {}, decisionName(f.cls)), h('b', {}, `${f.value.toFixed(3)}×`), h('small', {}, signedPct(f.value - 1, 2))))),
           h('div', { class: 'audit-tape' },
@@ -1532,6 +1532,19 @@ document.addEventListener('keydown', e => {
   const active = document.activeElement;
   const typing = active && (active.id === 'cmd' || active.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'));
   if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else goBack(); return; }
+  const auditSlider = active && active.classList.contains('audit-scrub');
+  if (state.screen === 'AUD' && D && D.audit && (!typing || auditSlider) && !e.metaKey && !e.altKey && !e.ctrlKey) {
+    const arrowBack = e.key === 'ArrowLeft';
+    const arrowForward = e.key === 'ArrowRight';
+    const vimBack = vimMode && e.key === 'H';
+    const vimForward = vimMode && e.key === 'L';
+    if (arrowBack || arrowForward || vimBack || vimForward) {
+      e.preventDefault();
+      const amount = (arrowBack || arrowForward) && e.shiftKey ? 5 : 1;
+      setAuditDay(state.auditDay + (arrowBack || vimBack ? -amount : amount), false, auditSlider);
+      return;
+    }
+  }
   if (typing || e.metaKey || e.altKey) return;
   if (vimMode) {
     const halfPage = Math.max(160, Math.round(innerHeight * .5));
