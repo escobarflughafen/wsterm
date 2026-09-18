@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -98,7 +98,7 @@ function table(cols, rows, { sortKey, desc = true, onRow, max } = {}) {
 }
 
 // ---------- line chart with crosshair ----------
-function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine = false, onPick = null, pickLabel = '' }) {
+function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine = false, onPick = null, pickLabel = '', xfmt = null }) {
   const root = h('div', { class: 'chart' });
   const legend = h('div', { class: 'legend' }, series.map(sr => h('span', {}, h('i', { style: `background:${sr.color}` }), sr.name)));
   const tip = h('div', { class: 'tip', role: 'status' });
@@ -130,7 +130,7 @@ function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine =
     for (let k = 0; k < ticks; k++) {
       const i = Math.round(k * (n - 1) / Math.max(1, ticks - 1));
       const t = s('text', { x: X(i), y: H - 6, 'text-anchor': k === 0 ? 'start' : k === ticks - 1 ? 'end' : 'middle' });
-      t.textContent = fmtDate(dates[i], n > 90); svg.append(t);
+      t.textContent = xfmt ? xfmt(dates[i]) : fmtDate(dates[i], n > 90); svg.append(t);
     }
     for (const sr of series) {
       let d = '', pen = false;
@@ -165,7 +165,7 @@ function lineChart({ dates, series, yfmt, height = 300, markers = [], zeroLine =
       const x = X(cur);
       cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('visibility', 'visible');
       series.forEach((sr, k) => { const v = sr.values[cur]; if (v == null) return dots[k].setAttribute('visibility', 'hidden'); dots[k].setAttribute('cx', x); dots[k].setAttribute('cy', Y(v)); dots[k].setAttribute('visibility', 'visible'); });
-      tip.replaceChildren(...[h('div', { class: 'd' }, dates[cur]),
+      tip.replaceChildren(...[h('div', { class: 'd' }, xfmt ? xfmt(dates[cur], true) : dates[cur]),
         ...series.map(sr => h('div', { class: 'r' }, h('i', { style: `background:${sr.color}` }), h('span', {}, sr.name),
           h('b', {}, sr.values[cur] == null ? '—' : yfmt(sr.values[cur], true),
             sr.alt && sr.alt[cur] != null ? h('span', { class: 'mut' }, `  ${sr.altFmt(sr.alt[cur])}`) : null))),
@@ -384,7 +384,7 @@ const SCREEN = {
   PNL() {
     const pos = D.positions.filter(p => Math.abs(p.realized_cad) >= 0.5);
     const worst = pos.slice(0, 12), best = pos.slice(-12).reverse();
-    const item = p => ({ label: `${p.sym.trim()} ${p.acct === 'Non-registered' ? 'NREG' : p.acct.toUpperCase()}`, value: p.realized_cad, title: `${p.buys} buys · ${p.sells} sells · ${p.first} → ${p.last}`, onclick: p.sym.length <= 10 ? () => openSymbol(p.sym, p.cur) : null });
+    const item = p => ({ label: `${p.sym.trim()} ${p.acct === 'Non-registered' ? 'NREG' : p.acct.toUpperCase()}`, value: p.realized_cad, title: `${p.buys} buys · ${p.sells} sells · ${p.first} → ${p.last}`, onclick: () => openSymbol(p.sym, p.cur) });
     const S = D.summary;
     return [
       h('div', { class: 'stats' },
@@ -416,7 +416,7 @@ const SCREEN = {
         { k: 'realized_cad', label: 'CAD', fmt: r => signed(r.realized_cad) },
         { k: 'first', sm: false, label: 'FIRST' }, { k: 'last', sm: false, label: 'LAST' },
         { k: 'open', label: 'OPEN', fmt: r => r.open ? 'Y' : '' },
-      ], pos, { sortKey: 'realized_cad', onRow: r => r.sym.length <= 10 && openSymbol(r.sym, r.cur) })),
+      ], pos, { sortKey: 'realized_cad', onRow: r => openSymbol(r.sym, r.cur) })),
     ];
   },
 
@@ -451,7 +451,7 @@ const SCREEN = {
         { k: 'now', sm: false, label: 'NOW', fmt: r => r.now == null ? '—' : r.now < 1 ? r.now.toPrecision(3) : num(r.now) },
         { k: 'edge', label: 'HINDSIGHT', fmt: r => signed(r.edge, x => money(x, 2)) },
         { k: 'avgdown', label: 'FLAG', fmt: r => r.avgdown ? h('span', { class: 'amb' }, 'AVG↓') : '' },
-      ], rows, { sortKey: 'date', max: 1500, onRow: r => r.sym.length <= 10 && openSymbol(r.sym, r.cur) })),
+      ], rows, { sortKey: 'date', max: 1500, onRow: r => openSymbol(r.sym, r.cur) })),
     ];
   },
 
@@ -742,10 +742,45 @@ const SCREEN = {
   SYM() {
     const t = state.sym;
     const el = h('div', {}, h('div', { class: 'skeleton' }, `LOADING ${t.yahoo}…`));
-    loadSymbol(t).then(view => el.replaceChildren(...view)).catch(e => el.replaceChildren(h('div', { class: 'skeleton' }, `NO PRICE DATA FOR ${t.yahoo}: ${e.message}`)));
+    loadSymbol(t).then(view => el.replaceChildren(...view.filter(Boolean))).catch(e => el.replaceChildren(h('div', { class: 'skeleton' }, `NO PRICE DATA FOR ${t.yahoo}: ${e.message}`)));
     return [el];
   },
 };
+
+// ---------- option positions (a contract has no chart of its own; project from the underlying) ----------
+function optionsPanel(ticker, rootSym) {
+  const list = (D.options || []).filter(o => o.underlying === ticker || o.root === rootSym);
+  if (!list.length) return null;
+  const focus = list.find(o => o.symbol === state.optionFocus) || list[0];
+  const pts = focus.payoff || [];
+  const chart = pts.length ? lineChart({
+    dates: pts.map(p => p.spot), height: 240, zeroLine: true,
+    xfmt: (v, full) => money(+v, full ? 2 : (+v < 10 ? 2 : 0)),
+    yfmt: (v, full) => full ? money(v, 2) : money(v),
+    series: [{ name: `P&L AT EXPIRY · ${focus.symbol}`, short: 'P&L', color: 'var(--s1)', values: pts.map(p => p.pl) }],
+  }) : null;
+  return panel('OPTION POSITIONS', `carried at cost · ${focus.right} ${money(focus.strike, 2)} expiring ${focus.expiry}`, null,
+    h('div', { class: 'stats' },
+      stat('CONTRACTS', `${+focus.contracts} × ${focus.right}`, `strike ${money(focus.strike, 2)} · ${focus.acct}`),
+      stat('PREMIUM PAID', money(focus.cost, 2), `${money(focus.premium_per_share, 2)}/share · ${money(focus.cost_cad)} CAD`),
+      stat('BREAK-EVEN', money(focus.breakeven, 2), focus.to_breakeven == null ? 'at expiry'
+        : h('span', {}, 'underlying needs ', signedPct(focus.to_breakeven, 1))),
+      stat('UNDERLYING NOW', focus.spot == null ? '—' : money(focus.spot, 2), focus.moneyness == null ? null
+        : h('span', {}, focus.moneyness >= 0 ? 'in the money ' : 'out of the money ', signedPct(focus.moneyness, 1))),
+      stat('DAYS TO EXPIRY', focus.expired ? 'EXPIRED' : `${focus.days_to_expiry}D`,
+        focus.intrinsic_pl == null ? 'no underlying price' : h('span', {}, 'if it expired today: ', signed(focus.intrinsic_pl)))),
+    chart ? h('div', { class: 'body' }, chart) : null,
+    h('div', { class: 'body mut' }, 'Contracts have no price history to chart, so the position is held at cost. The curve is the payoff at expiry: intrinsic value minus the premium paid, ignoring any time value left.'),
+    list.length > 1 ? table([
+      { k: 'symbol', label: 'CONTRACT', l: true, fmt: r => h('span', { class: r.symbol === focus.symbol ? 'amb' : '', raw: true }, r.symbol) },
+      { k: 'acct', label: 'ACCOUNT', l: true, sm: false },
+      { k: 'contracts', label: 'QTY', fmt: r => +r.contracts },
+      { k: 'strike', label: 'STRIKE', fmt: r => money(r.strike, 2) },
+      { k: 'expiry', label: 'EXPIRY' },
+      { k: 'cost', label: 'PREMIUM', fmt: r => money(r.cost, 2) },
+      { k: 'intrinsic_pl', label: 'IF EXPIRED TODAY', fmt: r => r.intrinsic_pl == null ? '—' : signed(r.intrinsic_pl) },
+    ], list, { sortKey: 'expiry', onRow: r => { state.optionFocus = r.symbol; rerenderKeepScroll(); } }) : null);
+}
 
 // ---------- symbol screen ----------
 const csvCache = {};
@@ -786,6 +821,7 @@ async function loadSymbol(t) {
       stat('REALIZED (CAD)', pos.length ? signed(pos.reduce((a, p) => a + p.realized_cad, 0)) : '—', `${trades.length} trades`)),
     panel(`${t.yahoo} <EQUITY>`, `split-adjusted close${cadListed ? '' : ' (USD; CAD-booked trades converted)'} · ▲ your buys · ▼ your sells`, ctl,
       h('div', { class: 'body' }, lineChart({ dates, series: [{ name: t.yahoo, short: t.yahoo, color: 'var(--s1)', values: rows.map(r => r.Close) }], yfmt: (v, full) => num(v, full || v < 100 ? 2 : 0), height: 340, markers }))),
+    optionsPanel(t.yahoo, t.sym),
     panel('TRADES', null, h('button', { 'aria-pressed': 'false', onclick: () => { trades.forEach(x => state.simSel.add(x.id)); saveSel(); state.simResult = null; state.simMode = 'REMOVE TRADES'; go('SIM'); } }, `SIMULATE WITHOUT ${t.sym} →`), table([
       { k: 'date', label: 'DATE', l: true }, { k: 'acct', sm: false, label: 'ACCOUNT', l: true },
       { k: 'side', label: 'SIDE', l: true, fmt: r => h('span', { class: r.side === 'BUY' ? 'up' : 'down' }, r.side === 'BUY' ? '▲' : '▼', h('span', { class: 'sm-hide' }, ' ' + r.side)) },
@@ -794,7 +830,16 @@ async function loadSymbol(t) {
     ], trades, { sortKey: 'date' })),
   ];
 }
+function optionRoot(sym) {                      // 'OPEN  261002C00002500' -> 'OPEN'
+  const m = /^([A-Z][A-Z0-9.]{0,5})\s+\d{6}[CP]\d{8}$/.exec((sym || '').trim());
+  return m ? m[1] : null;
+}
 function openSymbol(sym, cur) {
+  const root = optionRoot(sym);
+  if (root) {                                    // contracts have no chart of their own: show the underlying
+    state.optionFocus = sym.trim();
+    return openSymbol(root, cur);
+  }
   const t = D.tickers.find(k => k.sym === sym && k.cur === cur) || D.tickers.find(k => k.sym === sym);
   if (!t) return msg(`NO PRICE HISTORY FOR ${sym}`);
   state.sym = t; go('SYM');

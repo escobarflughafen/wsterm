@@ -177,6 +177,9 @@ def fetch_prices(tickers, active, start, state, budget, force):
             continue
         df = df.reset_index()
         df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None).dt.normalize()
+        df = df[df['Close'].notna()]          # today's row exists before the session has a close
+        if df.empty:
+            continue
         if old is not None:
             df = pd.concat([old[old['Date'] < df['Date'].min()], df])
         df.to_csv(path, index=False, float_format='%.6f')

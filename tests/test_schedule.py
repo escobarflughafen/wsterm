@@ -53,3 +53,13 @@ def test_activity_only_universe_marks_reconstructed_positions_held(fixture_bytes
     _acts, tmap, held, tickers, active = m.load_universe()
     assert tmap[('VOO', 'USD')] == 'VOO'
     assert 'VOO' in held and 'VOO' in tickers and 'VOO' in active
+
+
+def test_price_rows_without_a_close_are_dropped(tmp_path):
+    """Yahoo publishes today's row before the session has a close; a NaN close must never reach the build."""
+    import pandas as pd
+    rows = pd.DataFrame({'Date': pd.to_datetime(['2026-09-16', '2026-09-17']), 'Open': [1.0, 2.0], 'High': [1.0, 2.0],
+                         'Low': [1.0, 2.0], 'Close': [1.0, float('nan')], 'Adj Close': [1.0, float('nan')],
+                         'Volume': [1, 0], 'Dividends': [0.0, 0.0], 'Stock Splits': [0.0, 0.0]})
+    kept = rows[rows['Close'].notna()]
+    assert len(kept) == 1 and kept['Date'].iloc[-1].date().isoformat() == '2026-09-16'

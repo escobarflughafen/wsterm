@@ -204,6 +204,13 @@ const ZH = {
   'None of these account IDs match your existing data. Different person?': '这些账户 ID 与现有数据都不匹配。是别人的账户吗？',
   'No "As of" date found; treated as newest': '未找到 "As of" 日期；视为最新', 'File is not UTF-8 or Windows-1252 text': '文件不是 UTF-8 或 Windows-1252 文本',
 
+  'OPTION POSITIONS': '期权持仓', 'CONTRACTS': '合约数', 'PREMIUM PAID': '已付权利金', 'BREAK-EVEN': '盈亏平衡价',
+  'UNDERLYING NOW': '标的现价', 'DAYS TO EXPIRY': '距到期', 'EXPIRED': '已到期', 'at expiry': '到期时',
+  'in the money ': '实值 ', 'out of the money ': '虚值 ', 'if it expired today: ': '若今天到期：',
+  'no underlying price': '无标的价格', 'CONTRACT': '合约', 'STRIKE': '行权价', 'EXPIRY': '到期日', 'PREMIUM': '权利金',
+  'IF EXPIRED TODAY': '若今天到期', 'underlying needs ': '标的需变动 ',
+  'Contracts have no price history to chart, so the position is held at cost. The curve is the payoff at expiry: intrinsic value minus the premium paid, ignoring any time value left.': '合约没有可绘制的价格历史，因此按成本计价。曲线为到期收益：内在价值减去已付权利金，不计剩余时间价值。',
+
   // symbol screen
   'CHANGE IN RANGE': '区间涨跌', 'HELD NOW': '当前持有', 'unreal ': '浮动 ',
 

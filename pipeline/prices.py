@@ -42,7 +42,7 @@ def price_on(ticker, date, field='Close', as_traded=True):
 
 
 def latest(ticker):
-    df = history(ticker)
+    df = history(ticker).dropna(subset=['Close'])
     return df.index[-1].date(), float(df['Close'].iloc[-1])
 
 

@@ -6,6 +6,7 @@ import collections, csv, datetime as dt, json, math, os
 
 import pandas as pd
 
+import options as opt
 import store
 from ledger import load_activities, holding_rows, build_positions
 from settings import BUILD_DIR
@@ -90,13 +91,13 @@ def main():
         t = tmap.get((sym, h['Market Price Currency']))
         day = None
         if t:
-            c = history(t)['Close']
+            c = history(t)['Close'].dropna()
             if len(c) > 1:
                 day = c.iloc[-1] / c.iloc[-2] - 1
         rows.append(dict(acct=acct, sym=sym, name=h['Name'], cat=category(sym, acct), cur=cur, qty=q, avg=r2(book / q),
                          px=px, mv=r2(q * px), mv_cad=r2(mv_cad), upl=r2(q * px - book),
                          upl_pct=round((q * px / book - 1), 4) if book else None,
-                         day_pct=None if day is None else round(float(day), 4)))
+                         day_pct=r2(day)))
     pos = build_positions(acts)
     if not hold_rows:
         names = {}
@@ -112,7 +113,7 @@ def main():
             t = None if is_option(sym) else tmap.get((sym, cur))
             px = day = None
             if t:
-                closes = history(t)['Close']
+                closes = history(t)['Close'].dropna()
                 if len(closes):
                     px = float(closes.iloc[-1])
                 if len(closes) > 1:
@@ -126,7 +127,7 @@ def main():
             rows.append(dict(acct=acct, sym=sym, name=names.get((sym, cur), sym), cat=category(sym, acct), cur=cur,
                              qty=q, avg=r2(book / q), px=r2(px), mv=r2(mv), mv_cad=r2(mv_cad),
                              upl=r2(mv - book), upl_pct=round(mv / book - 1, 4) if book else None,
-                             day_pct=None if day is None else round(day, 4)))
+                             day_pct=r2(day)))
         for (acct, cur), amount in base['cash'].items():
             if abs(amount) <= 0.005:
                 continue
@@ -180,18 +181,46 @@ def main():
             df = history(t)
             splits = df.loc[df.index > pd.Timestamp(a['effective_date']), 'Stock Splits']
             factor = float(splits[splits > 0].prod()) if (splits > 0).any() else 1.0
-            now = float(df['Close'].iloc[-1]) * factor  # today's price in trade-date share units
-            if cur == 'CAD' and not t.endswith(CAD_SUFFIXES):
-                now *= fx_now
-            edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
-            if q < 0:
-                edge = (price - now) * -q
+            closes = df['Close'].dropna()  # today's row can exist before the session has a close
+            now = float(closes.iloc[-1]) * factor if len(closes) else None  # today's price in trade-date share units
+            if now is not None:
+                if cur == 'CAD' and not t.endswith(CAD_SUFFIXES):
+                    now *= fx_now
+                edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
+                if q < 0:
+                    edge = (price - now) * -q
         trades.append(dict(id=engine.trade_id(a), cat=category(sym, acct), date=a['effective_date'], acct=acct, sym=sym, cur=cur, side='BUY' if q > 0 else 'SELL',
                            qty=abs(q), px=round(price, 4), amt=r2(float(a['net_cash_amount'])),
-                           now=None if now is None else round(now, 4), edge=r2(edge),
+                           now=r2(now), edge=r2(edge),
                            edge_cad=None if edge is None else r2(to_cad(edge, cur)),
                            avgdown=bool(q > 0 and avg_before and price < avg_before * 0.98
                                         and category(sym, acct) in ('stocks', 'speculative'))))
+
+    # ---------- open option contracts ----------
+    # Yahoo has no history for a contract, so it is carried at cost; everything else comes from the underlying.
+    today = dt.date.fromisoformat(series['dates'][-1])
+    open_options = []
+    for (acct, sym, cur), p in pos.items():
+        if not is_option(sym) or p['q'] <= 1e-9:
+            continue
+        spec = opt.parse(sym)
+        under = tmap.get((spec['root'], cur)) if spec else None
+        spot = None
+        if under:
+            try:
+                closes = history(under)['Close'].dropna()
+                spot = float(closes.iloc[-1]) if len(closes) else None
+            except FileNotFoundError:
+                spot = None
+        o = opt.position(sym, float(p['q']), float(p['cost']), spot=spot, today=today)
+        if not o:
+            continue
+        o.update(acct=acct, cur=cur, underlying=under, cost_cad=r2(to_cad(float(p['cost']), cur)),
+                 payoff=opt.payoff(o))
+        if spot:
+            o['intrinsic_pl_cad'] = r2(to_cad(o['intrinsic_pl'], cur))
+        open_options.append(o)
+    open_options.sort(key=lambda o: o['expiry'])
 
     # ---------- monthly contributions into the equity core ----------
     groups = CFG.get('equivalents', {})
@@ -339,11 +368,12 @@ def main():
         rules=rules,
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
+        options=open_options,
         events=events,
     )
     os.makedirs(APP, exist_ok=True)
     with open(os.path.join(APP, 'data.json'), 'w') as f:
-        json.dump(data, f, separators=(',', ':'))
+        json.dump(data, f, separators=(',', ':'), allow_nan=False)  # NaN is not JSON: fail here, not in the browser
     s = data['summary']
     print(f"total ${s['total']:,.0f}  contrib ${s['contrib']:,.0f}  gain ${s['gain']:,.0f}  twr {s['twr']:+.1%}  "
           + '  '.join(f"{b} ${v['value']:,.0f}" for b, v in s['bench'].items()))
