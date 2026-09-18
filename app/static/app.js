@@ -7,7 +7,7 @@ const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -839,7 +839,7 @@ const SCREEN = {
           h('div', { class: 'amb' }, 'PRE-REGISTERED V1 QUESTIONS'),
           h('div', {}, A.hypotheses.map(x => { const [id, name] = x.split(' '); return h('span', { style: 'display:inline-block;margin:3px 14px 3px 0' }, `${id} · `, hypothesisName(name)); })),
           h('ul', { class: 'plain', style: 'margin-top:8px;color:var(--muted);display:grid;gap:4px' },
-            h('li', {}, 'Daily bars are canonical; hourly data is optional and currently not used.'),
+            h('li', {}, 'Decision scoring uses daily closes only. The hourly bars on a symbol page are there to read a session back, and never enter a score.'),
             h('li', {}, `Options remain in actual P&L (${A.options.campaigns} campaigns, ${money(A.options.pnl_cad)}) but are excluded from equity timing tests without contract history.`),
             h('li', {}, 'The class averages weight every decision equally, regardless of size. They are diagnostic evidence paths, not portfolio returns.'),
             h('li', {}, 'The relative-effect dollars are exposure-weighted approximations, not a separately tradable portfolio return.'),
@@ -956,7 +956,7 @@ const SCREEN = {
     ];
     return [
       h('div', { class: 'stats' },
-        stat('DUE NOW', `${P.requests} REQ`, P.requests ? `~${P.est_seconds}s · ${P.price_due} prices · ${P.calendar_due} calendars${P.fx_due ? ' · FX' : ''}` : 'everything is current'),
+        stat('DUE NOW', `${P.requests} REQ`, P.requests ? `~${P.est_seconds}s · ${P.price_due} prices · ${P.hourly_due || 0} hourly · ${P.calendar_due} calendars${P.fx_due ? ' · FX' : ''}` : 'everything is current'),
         stat('LAST FETCH', hist[0] ? ago(hist[0].started) : '—', hist[0] ? `${hist[0].requests} req · ${hist[0].seconds}s` : null),
         stat('REQUESTS TODAY', nf0.format(reqToday), `${hist.filter(x => x.started.slice(0, 10) === today).length} runs`),
         stat('429s, LAST 7D', h('span', { class: rl7 ? 'warn' : '' }, nf0.format(rl7)), rl7 ? 'slow down: raise REQUEST_GAP' : 'no throttling seen'),
@@ -1101,20 +1101,103 @@ function optionsPanel(ticker, rootSym) {
     ], list, { sortKey: 'expiry', onRow: r => { state.optionFocus = r.symbol; rerenderKeepScroll(); } }) : null);
 }
 
+// ---------- intraday (60-minute bars, rolling one-month window) ----------
+const INTRADAY_SPANS = [['5D', 5], ['10D', 10], ['1M', 30]];
+const vol = v => v == null ? '—' : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : nf0.format(v);
+const barTime = ts => `${fmtDate(ts.slice(0, 10))} ${ts.slice(11, 16)}`;
+// Yahoo attributes no volume to the opening bar on most TSX listings. A bar that clearly traded -- it
+// has a high above its low -- but reports none has unknown volume, not zero, and must not average in.
+const volReported = b => b.Volume > 0 || b.High <= b.Low;
+
+function intradayPanel(t, bars, trades, toListed) {
+  if (!bars) {
+    return panel('INTRADAY · 60-MINUTE BARS', 'not tracked for this ticker', null,
+      h('div', { class: 'body mut' }, 'Hourly bars are kept only for current holdings, the benchmarks, and anything traded in the last five weeks. Yahoo serves intraday history for a recent window only, so there is nothing to back-fill for an older position.'));
+  }
+  const days = [...new Set(bars.map(b => b.Datetime.slice(0, 10)))];
+  const span = INTRADAY_SPANS.find(([k]) => k === state.intradaySpan) || INTRADAY_SPANS[0];
+  const keep = new Set(days.slice(-span[1]));
+  const win = bars.filter(b => keep.has(b.Datetime.slice(0, 10)));
+  const ctl = seg(INTRADAY_SPANS.map(([k]) => k), span[0], k => { state.intradaySpan = k; render(); });
+  if (!win.length) return panel('INTRADAY · 60-MINUTE BARS', 'no bars in this window', ctl);
+
+  const rows = win.map((b, i) => ({
+    ...b, prev: i ? win[i - 1].Close : null,
+    chg: i && win[i - 1].Close ? b.Close / win[i - 1].Close - 1 : null,
+    range: b.High - b.Low, rangePct: b.Low ? b.High / b.Low - 1 : null,
+  }));
+  const closes = rows.map(r => r.Close), last = rows[rows.length - 1];
+  const hi = Math.max(...rows.map(r => r.High)), lo = Math.min(...rows.map(r => r.Low));
+  const moved = rows.filter(r => r.chg != null);
+  const best = moved.reduce((a, r) => (a && a.chg >= r.chg ? a : r), null);
+  const worst = moved.reduce((a, r) => (a && a.chg <= r.chg ? a : r), null);
+  const known = rows.filter(volReported);
+  const avgVol = known.length ? known.reduce((a, r) => a + r.Volume, 0) / known.length : null;
+  const up = moved.filter(r => r.chg > 0).length;
+
+  // The export stamps a fill time, so a trade lands in the hour that actually printed it.
+  const markers = [];
+  for (const tr of trades) {
+    if (!keep.has(tr.date)) continue;
+    const stamp = `${tr.date}T${tr.time || '00:00'}`;
+    let i = -1;
+    rows.forEach((r, k) => { if (r.Datetime.slice(0, 16) <= stamp && r.Datetime.slice(0, 10) === tr.date) i = k; });
+    if (i < 0) i = rows.findIndex(r => r.Datetime.slice(0, 10) === tr.date);
+    if (i < 0) continue;
+    markers.push({ i, y: toListed(tr.px, tr.cur, tr.date), side: tr.side,
+      label: `${tr.acct} ${tr.qty} @ ${num(tr.px)} ${tr.cur}${tr.time ? ` · ${tr.time}` : ''}` });
+  }
+
+  return panel('INTRADAY · 60-MINUTE BARS', `${rows.length} bars over ${Math.min(days.length, span[1])} sessions · exchange local time`, ctl,
+    h('div', { class: 'stats' },
+      stat('LAST BAR', num(last.Close, 2), h('span', {}, barTime(last.Datetime), ' · ', signedPct(last.chg, 2))),
+      stat('WINDOW RANGE', `${num(lo, 2)} – ${num(hi, 2)}`, hi > lo
+        ? h('span', {}, 'last close sits at ', pct((last.Close - lo) / (hi - lo), 0), ' of it') : null),
+      stat('BEST HOUR', best ? signedPct(best.chg, 2) : '—', best ? barTime(best.Datetime) : null),
+      stat('WORST HOUR', worst ? signedPct(worst.chg, 2) : '—', worst ? barTime(worst.Datetime) : null),
+      stat('HOURS UP', moved.length ? `${up} / ${moved.length}` : '—', moved.length ? pct(up / moved.length, 0) : null),
+      stat('AVG HOURLY VOLUME', vol(avgVol), known.length === rows.length
+        ? h('span', {}, 'last bar ', vol(last.Volume))
+        : h('span', { class: 'mut' }, `${rows.length - known.length} bars report none`))),
+    h('div', { class: 'body' }, lineChart({
+      dates: rows.map(r => r.Datetime), height: 300, markers,
+      series: [{ name: `${t.yahoo} 60m`, short: t.yahoo, color: 'var(--s1)', values: closes }],
+      yfmt: (v, full) => num(v, full || v < 100 ? 2 : 0),
+      xfmt: v => barTime(v),   // index-based ticks repeat a day, so every label carries its hour
+    })),
+    table([
+      { k: 'Datetime', label: 'BAR', l: true, fmt: r => h('span', {}, fmtDate(r.Datetime.slice(0, 10)), ' ', h('b', {}, r.Datetime.slice(11, 16))) },
+      { k: 'Open', label: 'OPEN', fmt: r => num(r.Open, 2) },
+      { k: 'High', label: 'HIGH', fmt: r => num(r.High, 2) },
+      { k: 'Low', label: 'LOW', fmt: r => num(r.Low, 2) },
+      { k: 'Close', label: 'CLOSE', fmt: r => h('b', {}, num(r.Close, 2)) },
+      { k: 'chg', label: 'CHG', fmt: r => signedPct(r.chg, 2) },
+      { k: 'rangePct', label: 'RANGE', sm: false, fmt: r => h('span', {}, num(r.range, 2), h('span', { class: 'mut' }, ` · ${pct(r.rangePct, 2)}`)) },
+      { k: 'Volume', label: 'VOLUME', fmt: r => volReported(r) ? vol(r.Volume) : h('span', { class: 'mut', title: 'Yahoo reported no volume for this bar' }, '—') },
+    ], rows, { sortKey: 'Datetime', max: 400 }),
+    h('div', { class: 'body mut' }, 'A bar is stamped with the hour it opened, in the exchange\'s own time, and Wealthsimple stamps fills the same way — so ▲/▼ sit in the hour that actually printed them. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.'));
+}
+
 // ---------- symbol screen ----------
 const csvCache = {};
-async function fetchCSV(url) {
+// The first column is a timestamp: a date for daily files, a full exchange-local stamp for hourly ones.
+async function fetchCSV(url, keepTime = false) {
   if (csvCache[url]) return csvCache[url];
   const r = await fetch(url); if (!r.ok) throw new Error(r.status);
   const [head, ...lines] = (await r.text()).trim().split(/\r?\n/);
   const cols = head.split(',');
-  return csvCache[url] = lines.map(l => { const v = l.split(','); return Object.fromEntries(cols.map((c, i) => [c, i === 0 ? v[i].slice(0, 10) : +v[i]])); });
+  return csvCache[url] = lines.map(l => { const v = l.split(','); return Object.fromEntries(cols.map((c, i) => [c, i ? +v[i] : (keepTime ? v[i] : v[i].slice(0, 10))])); });
 }
 async function loadSymbol(t) {
   const px = await fetchCSV(`/prices/${encodeURIComponent(t.yahoo)}.csv`);
   const fx = await fetchCSV('/fx_usdcad.csv');
+  // Only tracked for what is still worth an intraday look; a 404 is the normal answer for the rest.
+  const bars = await fetchCSV(`/hourly/${encodeURIComponent(t.yahoo)}.csv`, true).catch(() => null);
   const fxAt = d => { let lo = 0, hi = fx.length - 1, best = fx[0].USDCAD; while (lo <= hi) { const m = (lo + hi) >> 1; if (fx[m].Date <= d) { best = fx[m].USDCAD; lo = m + 1; } else hi = m - 1; } return best; };
   const cadListed = /\.(TO|NE)$|-CAD$/.test(t.yahoo);
+  const splitAfter = d => px.filter(p => p.Date > d && p['Stock Splits'] > 0).reduce((a, p) => a * p['Stock Splits'], 1);
+  // One rule for putting a fill on a chart: convert a CAD-booked trade, then undo any later split.
+  const toListed = (price, cur, d) => (cur === 'CAD' && !cadListed ? price / fxAt(d) : price) / splitAfter(d);
   const trades = D.trades.filter(x => x.sym === t.sym && (D.tickers.find(k => k.sym === x.sym && k.cur === x.cur) || {}).yahoo === t.yahoo);
   const i0 = rangeStart(px.map(p => p.Date), state.range);
   const rows = px.slice(i0), dates = rows.map(r => r.Date);
@@ -1122,10 +1205,7 @@ async function loadSymbol(t) {
   const markers = [];
   for (const tr of trades) {
     const i = idx(tr.date); if (i < 0 || tr.date < dates[0]) continue;
-    const later = px.filter(p => p.Date > tr.date && p['Stock Splits'] > 0).reduce((a, p) => a * p['Stock Splits'], 1);
-    let y = tr.px / later;
-    if (tr.cur === 'CAD' && !cadListed) y /= fxAt(tr.date);
-    markers.push({ i, y, side: tr.side, label: `${tr.acct} ${tr.qty} @ ${num(tr.px)} ${tr.cur}` });
+    markers.push({ i, y: toListed(tr.px, tr.cur, tr.date), side: tr.side, label: `${tr.acct} ${tr.qty} @ ${num(tr.px)} ${tr.cur}` });
   }
   const last = rows[rows.length - 1], first = rows[0];
   const same = new Set(D.tickers.filter(k => k.yahoo === t.yahoo).map(k => `${k.sym}|${k.cur}`));
@@ -1140,9 +1220,11 @@ async function loadSymbol(t) {
       stat('REALIZED (CAD)', pos.length ? signed(pos.reduce((a, p) => a + p.realized_cad, 0)) : '—', `${trades.length} trades`)),
     panel(`${t.yahoo} <EQUITY>`, `split-adjusted close${cadListed ? '' : ' (USD; CAD-booked trades converted)'} · ▲ your buys · ▼ your sells`, ctl,
       h('div', { class: 'body' }, lineChart({ dates, series: [{ name: t.yahoo, short: t.yahoo, color: 'var(--s1)', values: rows.map(r => r.Close) }], yfmt: (v, full) => num(v, full || v < 100 ? 2 : 0), height: 340, markers }))),
+    intradayPanel(t, bars, trades, toListed),
     optionsPanel(t.yahoo, t.sym),
     panel('TRADES', null, h('button', { 'aria-pressed': 'false', onclick: () => { trades.forEach(x => state.simSel.add(x.id)); saveSel(); state.simResult = null; state.simMode = 'REMOVE TRADES'; go('SIM'); } }, `SIMULATE WITHOUT ${t.sym} →`), table([
-      { k: 'date', label: 'DATE', l: true }, { k: 'acct', sm: false, label: 'ACCOUNT', l: true },
+      { k: 'date', label: 'DATE', l: true, fmt: r => h('span', {}, r.date, r.time ? h('span', { class: 'mut' }, ` ${r.time}`) : null) },
+      { k: 'acct', sm: false, label: 'ACCOUNT', l: true },
       { k: 'side', label: 'SIDE', l: true, fmt: r => h('span', { class: r.side === 'BUY' ? 'up' : 'down' }, r.side === 'BUY' ? '▲' : '▼', h('span', { class: 'sm-hide' }, ' ' + r.side)) },
       { k: 'qty', sm: false, label: 'QTY', fmt: r => +r.qty.toFixed(6) }, { k: 'px', sm: false, label: 'PRICE', fmt: r => h('span', {}, num(r.px), ' ', h('span', { class: 'tag' }, r.cur)) },
       { k: 'edge', label: 'HINDSIGHT', fmt: r => signed(r.edge, x => money(x, 2)) },

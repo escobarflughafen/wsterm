@@ -88,6 +88,17 @@ const ZH = {
   'CAMPAIGN': '持仓周期', 'One continuous position in one account: it starts when shares move from zero to positive and ends when they return to zero. Transactions inside it are related, not independent bets.': '同一账户中的一段连续持仓：股数从零变为正数时开始，回到零时结束。其中的交易彼此相关，并非独立下注。',
   'ABOVE / BELOW COST': '高于 / 低于成本', 'The previous completed daily close is compared with average cost immediately before the decision. This avoids using a close that occurred after the trade.': '用决策前最近一个已完成的日收盘价与当时平均成本比较，避免使用交易发生后的收盘价。',
   'EXCESS RETURN': '超额收益', 'EXIT SCORE': '卖出评分', 'For a sale the sign is reversed: benchmark return minus the sold security return. Positive means selling added relative value; negative means holding would have done better.': '卖出采用反向符号：基准收益减去已卖证券收益。正值表示卖出创造了相对价值；负值表示继续持有会更好。',
+  // intraday (60-minute bars)
+  'Yahoo reported no volume for this bar': '雅虎未提供该K线的成交量',
+
+  'INTRADAY · 60-MINUTE BARS': '盘中 · 60分钟K线', 'not tracked for this ticker': '该代码未跟踪盘中数据',
+  'no bars in this window': '该窗口内没有K线', 'LAST BAR': '最新K线', 'WINDOW RANGE': '窗口区间',
+  'BEST HOUR': '最佳小时', 'WORST HOUR': '最差小时', 'HOURS UP': '上涨小时数', 'AVG HOURLY VOLUME': '平均每小时成交量',
+  'BAR': 'K线', 'OPEN': '开盘', 'HIGH': '最高', 'LOW': '最低', 'CLOSE': '收盘', 'CHG': '涨跌', 'RANGE': '振幅', 'VOLUME': '成交量',
+  'last close sits at ': '最新收盘位于', 'last bar ': '最新K线 ',
+  'Hourly bars are kept only for current holdings, the benchmarks, and anything traded in the last five weeks. Yahoo serves intraday history for a recent window only, so there is nothing to back-fill for an older position.': '盘中K线只保留当前持仓、基准，以及最近五周内交易过的代码。雅虎只提供最近一段时间的盘中历史，更早的持仓无法回补。',
+  'A bar is stamped with the hour it opened, in the exchange\'s own time, and Wealthsimple stamps fills the same way — so ▲/▼ sit in the hour that actually printed them. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.': '每根K线以其开始的整点标记，使用交易所本地时间；Wealthsimple 的成交时间也是同一时区 —— 因此 ▲/▼ 落在真正成交的那个小时里。盘中交易时段内，最新一根K线仍在形成中。多伦多交易所大部分标的的开盘K线，雅虎不提供成交量，这些显示为 — 并且不计入均值，而不是当作零。盘中K线不做拆股与分红调整；雅虎只提供最近一个月，并且每次是重新抓取而非累积。',
+
   'ACTUAL PORTFOLIO': '实际组合', 'TRANSFER': '转移', 'SOURCE': '来源', 'RESIDUAL': '残差',
   'WHERE THE GAIN COMES FROM': '收益从何而来', 'campaign P&L is trades only · this ties it to the figure PERF reports': '持仓周期盈亏只含交易 · 此处与业绩表现页的收益对账',
   'CAMPAIGN P&L': '持仓周期盈亏', 'INCOME & COSTS': '收益与成本', 'PORTFOLIO GAIN': '组合收益',
@@ -144,7 +155,7 @@ const ZH = {
   'NO ADD BELOW COST': '未低于成本加仓', 'median of other campaigns': '其他持仓周期的中位数', '20D EFFECT': '20日效果', '60D EFFECT': '60日效果',
   'CAMPAIGN P&L': '持仓周期盈亏', 'START': '开始', 'END': '结束', 'DECISIONS': '决策数', 'P&L CAD': '盈亏（加元）',
   'SCOPE & LIMITATIONS': '范围与限制', 'frozen hypotheses · explicit exclusions': '冻结假设 · 明确排除项', 'PRE-REGISTERED V1 QUESTIONS': 'V1 预先登记问题',
-  'Daily bars are canonical; hourly data is optional and currently not used.': '日线是标准时间尺度；小时数据为可选项，目前未使用。',
+  'Decision scoring uses daily closes only. The hourly bars on a symbol page are there to read a session back, and never enter a score.': '决策评分只使用日线收盘价。代码页上的小时线用于回看当时的盘中走势，不会计入任何评分。',
   'The class averages weight every decision equally, regardless of size. They are diagnostic evidence paths, not portfolio returns.': '各类别的平均值对每个决策等权，与金额无关，是诊断性的证据路径，并非组合收益率。',
   'The relative-effect dollars are exposure-weighted approximations, not a separately tradable portfolio return.': '相对效果金额是按敞口加权的近似值，并非可单独交易的组合收益。',
   'Shapley attribution, weekly-block bootstrap, and feasible timing randomization are not estimated in V1.': 'V1 尚未估算 Shapley 归因、周区块自助法及可行交易时点随机化。',
@@ -315,6 +326,9 @@ const ZH_PATTERNS = [
   [/^(\d+) total · options included in P&L but excluded from timing tests$/, '共 $1 个 · 期权计入盈亏，但不纳入择时测试'],
   [/^Options remain in actual P&L \((\d+) campaigns, (.+)\) but are excluded from equity timing tests without contract history\.$/, '期权仍计入实际盈亏（$1 个持仓周期，$2），但在缺少合约历史价格时不纳入股票择时测试。'],
 
+  [/^(\d+) bars over (\d+) sessions · exchange local time$/, '$2 个交易日共 $1 根K线 · 交易所本地时间'],
+  [/^(\d+) bars report none$/, '$1 根K线未提供'],
+  [/^~([\d.]+)s · (\d+) prices · (\d+) hourly · (\d+) calendars( · FX)?$/, (m, s, p, hh, c, fx) => `约 ${s}秒 · ${p} 个价格 · ${hh} 个盘中 · ${c} 个日历${fx ? ' · 汇率' : ''}`],
   // relative time & counts
   [/^(\d+)D AGO$/, '$1天前'], [/^(\d+)H AGO$/, '$1小时前'], [/^(\d+)MIN AGO$/, '$1分钟前'], [/^(\d+)D$/, '$1天'],
   [/^(\d+)M AGO$/, '$1个月前'], [/^(\d+)Y AGO$/, '$1年前'],

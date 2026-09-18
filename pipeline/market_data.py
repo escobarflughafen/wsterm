@@ -2,6 +2,7 @@
 
 Writes public fetch data to PUBLIC_MARKET_DIR and guest/user-derived metadata to MARKET_DIR:
   prices/<ticker>.csv   daily OHLC, Close, Adj Close, Volume (appended incrementally)
+  hourly/<ticker>.csv   rolling 1-month window of 60-minute OHLCV bars, for intraday retrospect
   fx_usdcad.csv         Bank of Canada daily USD/CAD
   tickers.csv           WS symbol -> Yahoo ticker map (private MARKET_DIR)
   events.csv            upcoming earnings / ex-dividend dates for current holdings
@@ -12,6 +13,8 @@ Budget rules (Yahoo publishes no limits, so stay far below anything that trips 4
   - a ticker is requested only when a newer session close should exist than the last check
   - held tickers and benchmarks refresh every session; closed positions only feed hindsight, so they refresh
     weekly on a staggered weekday (~1/5 of them per day) instead of all at once
+  - hourly bars cover only what you might still review intraday (held, benchmarks, traded in the last
+    5 weeks) and are never requested twice within the hour, nor at all once the session has settled
   - closed positions that stopped trading (delisted) are re-checked at most weekly
   - calendars are requested once per day, and never for tickers that have none (ETFs)
   - requests are spaced by REQUEST_GAP seconds; a 429 pauses once, a second 429 aborts the run
@@ -37,6 +40,7 @@ yf.set_tz_cache_location(str(PUBLIC_MARKET_DIR / 'yf-cache'))  # container root 
 DATA = str(MARKET_DIR)
 PUBLIC_DATA = str(PUBLIC_MARKET_DIR)
 PRICES = os.path.join(PUBLIC_DATA, 'prices')
+HOURLY = os.path.join(PUBLIC_DATA, 'hourly')
 STATE = os.path.join(PUBLIC_DATA, 'fetch_state.json')
 LOG = os.path.join(DATA, 'fetch_log.jsonl')
 PROGRESS = os.path.join(DATA, 'fetch_progress.json')
@@ -52,6 +56,9 @@ STALE_RECHECK_DAYS = 7
 CLOSED_REFRESH_DAYS = 7
 CALENDAR_TTL_H = 20
 NO_CALENDAR_TTL_D = 30
+HOURLY_PERIOD = '1mo'       # Yahoo serves intraday history only for a recent window
+HOURLY_TTL_MIN = 55         # one 60-minute bar; never re-request inside it
+HOURLY_TRADED_DAYS = 35     # a position closed last month is still worth reviewing hour by hour
 NY = ZoneInfo('America/New_York')
 
 
@@ -106,6 +113,24 @@ def last_session_close(ticker, now):
     while day.weekday() >= 5:
         day -= dt.timedelta(days=1)
     return dt.datetime.combine(day, dt.time(16, 30), NY)  # holidays: one wasted check, then state skips it
+
+
+def market_open(ticker, now):
+    """Roughly: is a new intraday bar still being printed? Crypto never stops."""
+    if ticker.endswith('-CAD'):
+        return True
+    ny = now.astimezone(NY)
+    return ny.weekday() < 5 and dt.time(9, 30) <= ny.time() <= dt.time(16, 30)
+
+
+def hourly_due(ticker, st, now, force):
+    """Refresh while the session prints bars, once more after it settles, then stop until it reopens."""
+    if force or not st.get('hourly_checked'):
+        return True
+    checked = dt.datetime.fromisoformat(st['hourly_checked'])
+    if (now - checked).total_seconds() < HOURLY_TTL_MIN * 60:
+        return False
+    return market_open(ticker, now) or checked < last_session_close(ticker, now)
 
 
 def needs_fetch(ticker, st, now, active, force):
@@ -186,6 +211,38 @@ def fetch_prices(tickers, active, start, state, budget, force):
         st['last'] = df['Date'].max().date().isoformat()
         updated += 1
     return dict(price_skipped=skipped, price_updated=updated)
+
+
+def fetch_hourly(tickers, state, budget, force):
+    """A rolling window of 60-minute bars. Yahoo only serves the recent weeks of intraday history, so
+    each fetch rewrites the file instead of appending: there is no older data to preserve."""
+    os.makedirs(HOURLY, exist_ok=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    skipped, updated = 0, 0
+    for t in sorted(tickers):
+        st = state.setdefault(t, {})
+        path = os.path.join(HOURLY, f'{t}.csv')
+        if os.path.exists(path) and not hourly_due(t, st, now, force):
+            skipped += 1
+            continue
+        df = budget.call(f'{t} 60m', lambda: yf.Ticker(t).history(period=HOURLY_PERIOD, interval='60m', auto_adjust=False))
+        st['hourly_checked'] = now.isoformat(timespec='seconds')
+        if df is None or df.empty:
+            continue
+        df = df.reset_index()
+        stamp = 'Datetime' if 'Datetime' in df.columns else df.columns[0]
+        df = df[df['Close'].notna()]  # the bar in progress can arrive before it has a close
+        if df.empty:
+            continue
+        # Keep exchange-local time: which hour of the session a bar belongs to is the point of the file.
+        out = pd.DataFrame(dict(Datetime=df[stamp].map(lambda x: x.isoformat(timespec='minutes')),
+                                **{c: df[c] for c in ('Open', 'High', 'Low', 'Close')},
+                                Volume=df['Volume'].fillna(0).astype('int64')))
+        out.to_csv(path, index=False, float_format='%.6f')
+        st['hourly_last'] = out['Datetime'].iloc[-1]
+        st['hourly_bars'] = len(out)
+        updated += 1
+    return dict(hourly_skipped=skipped, hourly_updated=updated)
 
 
 def fetch_fx(start, state, budget):
@@ -274,12 +331,22 @@ def load_universe():
         held = {tmap.get((sym, cur)) for (_acct, sym, cur), p in build_positions(acts).items()
                 if p['q'] > 1e-9} - {None}
     tickers = {t for t in tmap.values() if t} | set(BENCHMARKS)
-    return acts, tmap, held, tickers, held | set(BENCHMARKS)
+    active = held | set(BENCHMARKS)
+    return acts, tmap, held, tickers, active
+
+
+def hourly_tickers(acts, tmap, active):
+    """What is still worth reviewing hour by hour: what you hold, the benchmarks, and whatever you
+    traded recently enough that the intraday window still covers the trade."""
+    cutoff = (dt.date.today() - dt.timedelta(days=HOURLY_TRADED_DAYS)).isoformat()
+    recent = {tmap.get((a['symbol'], a['currency'])) for a in acts
+              if a['activity_type'] == 'Trade' and a['effective_date'] >= cutoff}
+    return (active | recent) - {None}
 
 
 def plan(force=False):
     """What a fetch right now would request, without touching the network."""
-    _, _, held, tickers, active = load_universe()
+    acts, tmap, held, tickers, active = load_universe()
     state = json.load(open(STATE)) if os.path.exists(STATE) else {}
     now = dt.datetime.now(dt.timezone.utc)
     rows = []
@@ -300,8 +367,12 @@ def plan(force=False):
             continue
         age_h = (now - dt.datetime.fromisoformat(st['calendar_checked'])).total_seconds() / 3600
         cal_due += age_h >= (NO_CALENDAR_TTL_D * 24 if st['calendar'] == [] else CALENDAR_TTL_H)
-    due = sum(r['due'] for r in rows) + fx_due + cal_due
+    hourly = hourly_tickers(acts, tmap, active)
+    hourly_due_n = sum(not os.path.exists(os.path.join(HOURLY, f'{t}.csv')) or hourly_due(t, state.get(t, {}), now, force)
+                       for t in hourly)
+    due = sum(r['due'] for r in rows) + fx_due + cal_due + hourly_due_n
     return dict(tickers=rows, price_due=sum(r['due'] for r in rows), fx_due=bool(fx_due), calendar_due=cal_due,
+                hourly_tickers=len(hourly), hourly_due=hourly_due_n,
                 requests=due, est_seconds=round(due * (REQUEST_GAP + 0.1), 1))
 
 
@@ -325,6 +396,7 @@ def main():
     aborted = None
     try:
         result.update(fetch_prices(tickers, active, start, state, budget, force))
+        result.update(fetch_hourly(hourly_tickers(acts, tmap, active), state, budget, force))
         result['fx'] = fetch_fx(start, state, budget)
         events, ev_skipped = fetch_events({t for t in held if not t.endswith('-CAD')}, state, budget, force)
         result.update(events=len(events), calendar_skipped=ev_skipped)
@@ -340,7 +412,8 @@ def main():
             os.remove(PROGRESS)
 
     print(f"{result['requests']} requests in {result['seconds']}s · prices updated {result.get('price_updated', 0)}, "
-          f"skipped {result.get('price_skipped', 0)} · calendars skipped {result.get('calendar_skipped', 0)} · fx {result.get('fx')}")
+          f"skipped {result.get('price_skipped', 0)} · hourly updated {result.get('hourly_updated', 0)}, "
+          f"skipped {result.get('hourly_skipped', 0)} · calendars skipped {result.get('calendar_skipped', 0)} · fx {result.get('fx')}")
     for e in budget.errors:
         print('  error', e)
     if aborted:

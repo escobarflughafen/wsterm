@@ -13,8 +13,8 @@ fetch logs, exports, and computed portfolio output. It defaults to `MARKET_DIR`,
 ```
 Browser ──HTTPS──► reverse proxy (Caddy/Traefik/nginx) ──► portfolio (FastAPI, 1 worker) ──► /data volume
                                                               │  ├─ exports/  activities.csv, holdings.csv, uploads/, inbox/
-                                                              │  ├─ market/   prices/*.csv, fx, fetch state + log
-                                                              │  └─ build/    data.json (what the UI renders)
+                                                              │  ├─ market/   prices/*.csv, hourly/*.csv, fx, state + log
+                                                              │  └─ build/    data.json, audit_decisions.json
                                                               └─► Yahoo Finance + Bank of Canada (incremental, rate-limited)
 ```
 

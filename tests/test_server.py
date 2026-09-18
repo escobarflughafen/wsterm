@@ -92,6 +92,18 @@ def test_posts_need_csrf_header(client):
 
 def test_price_route_rejects_traversal(client):
     assert client.get('/prices/..%2F..%2Fsettings.csv', auth=AUTH).status_code == 404
+    assert client.get('/hourly/..%2F..%2Fsettings.csv', auth=AUTH).status_code == 404
+
+
+def test_hourly_route_serves_bars_and_404s_for_untracked(client, tmp_path):
+    from settings import PUBLIC_MARKET_DIR
+    (PUBLIC_MARKET_DIR / 'hourly').mkdir(parents=True, exist_ok=True)
+    (PUBLIC_MARKET_DIR / 'hourly' / 'VOO.csv').write_text(
+        'Datetime,Open,High,Low,Close,Volume\n2026-09-17T09:30-04:00,500,501,499,500.5,1000\n')
+    r = client.get('/hourly/VOO.csv', auth=AUTH)
+    assert r.status_code == 200 and '2026-09-17T09:30-04:00' in r.text
+    assert client.get('/hourly/NOSUCH.csv', auth=AUTH).status_code == 404   # closed positions have none
+    assert client.get('/hourly/VOO.csv').status_code == 401                 # still behind auth
 
 
 def test_upload_preview_and_commit(client, fixture_bytes):

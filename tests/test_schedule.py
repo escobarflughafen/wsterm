@@ -63,3 +63,26 @@ def test_price_rows_without_a_close_are_dropped(tmp_path):
                          'Volume': [1, 0], 'Dividends': [0.0, 0.0], 'Stock Splits': [0.0, 0.0]})
     kept = rows[rows['Close'].notna()]
     assert len(kept) == 1 and kept['Date'].iloc[-1].date().isoformat() == '2026-09-16'
+
+
+def test_hourly_never_refetches_inside_the_bar():
+    st = dict(hourly_checked=at(2026, 9, 17, 11, 0).isoformat())
+    assert not m.hourly_due('VOO', st, at(2026, 9, 17, 11, 30), force=False)   # same 60-minute bar
+    assert m.hourly_due('VOO', st, at(2026, 9, 17, 12, 30), force=False)       # next one, session open
+
+
+def test_hourly_stops_once_the_session_has_settled():
+    st = dict(hourly_checked=at(2026, 9, 17, 17, 0).isoformat())               # Thu, after the close
+    assert not m.hourly_due('VOO', st, at(2026, 9, 17, 22, 0), force=False)
+    assert not m.hourly_due('VOO', st, at(2026, 9, 18, 8, 0), force=False)     # Fri pre-market
+    assert m.hourly_due('VOO', st, at(2026, 9, 18, 10, 0), force=False)        # Fri, printing again
+    assert m.hourly_due('BTC-CAD', st, at(2026, 9, 17, 22, 0), force=False)    # crypto never closes
+
+
+def test_hourly_universe_keeps_recently_traded_names():
+    tmap = {('NVDA', 'USD'): 'NVDA', ('OLD', 'USD'): 'OLD'}
+    recent = dt.date.today() - dt.timedelta(days=3)
+    stale = dt.date.today() - dt.timedelta(days=m.HOURLY_TRADED_DAYS + 5)
+    acts = [dict(activity_type='Trade', symbol='NVDA', currency='USD', effective_date=recent.isoformat()),
+            dict(activity_type='Trade', symbol='OLD', currency='USD', effective_date=stale.isoformat())]
+    assert m.hourly_tickers(acts, tmap, {'VOO'}) == {'VOO', 'NVDA'}

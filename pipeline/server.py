@@ -188,6 +188,15 @@ def price_csv(ticker: str):
     return FileResponse(path, media_type='text/csv')
 
 
+@app.get('/hourly/{ticker}.csv')
+def hourly_csv(ticker: str):
+    """60-minute bars for the last month. Only kept for tickers still worth an intraday look."""
+    path = PUBLIC_MARKET_DIR / 'hourly' / f'{ticker}.csv'
+    if not TICKER.match(ticker) or not path.is_file():
+        raise HTTPException(404, 'no hourly bars for this ticker')
+    return FileResponse(path, media_type='text/csv')
+
+
 @app.get('/fx_usdcad.csv')
 def fx_csv():
     path = PUBLIC_MARKET_DIR / 'fx_usdcad.csv'

@@ -190,7 +190,10 @@ def main():
                 edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
                 if q < 0:
                     edge = (price - now) * -q
-        trades.append(dict(id=engine.trade_id(a), cat=category(sym, acct), date=a['effective_date'], acct=acct, sym=sym, cur=cur, side='BUY' if q > 0 else 'SELL',
+        trades.append(dict(id=engine.trade_id(a), cat=category(sym, acct), date=a['effective_date'],
+                           # the export's fill time, so an intraday chart can place the trade in its session
+                           time=(a['effective_time'] or '')[:5] or None,
+                           acct=acct, sym=sym, cur=cur, side='BUY' if q > 0 else 'SELL',
                            qty=abs(q), px=round(price, 4), amt=r2(float(a['net_cash_amount'])),
                            now=r2(now), edge=r2(edge),
                            edge_cad=None if edge is None else r2(to_cad(edge, cur)),
