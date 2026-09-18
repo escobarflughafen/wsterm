@@ -17,7 +17,10 @@ def is_option(symbol):
 
 
 def trade_id(a):
-    raw = '|'.join(a[k] for k in ('effective_date', 'effective_time', 'account_id', 'symbol', 'quantity', 'net_cash_amount'))
+    # Hash what the broker booked, not the resolved execution date, so ids stay stable across that fix
+    # and keep matching anything the user already selected in a simulation.
+    raw = '|'.join([a.get('booked_date') or a['effective_date'], a.get('order_time') or a['effective_time']]
+                   + [a[k] for k in ('account_id', 'symbol', 'quantity', 'net_cash_amount')])
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 

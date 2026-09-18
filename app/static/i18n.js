@@ -99,6 +99,7 @@ const ZH = {
   'Positions and NAV come from your activity ledger, so these lines are simply the trades made after the report was taken. Export a fresh holdings report to clear them.': '持仓与净值来自你的交易账本，因此这些差异只是报告生成之后发生的交易。导出一份新的持仓报告即可消除它们。',
   'The report is not older than your trades, so these lines are a real disagreement: an activity export may be missing rows. Re-export the full activity history.': '报告并不比你的交易更旧，因此这些差异是真正的不一致：活动导出可能缺少某些行。请重新导出完整的活动历史。',
 
+  'EXECUTED': '成交日', 'order placed': '下单时间', 'queued before the open': '开盘前挂单',
   // intraday (60-minute bars)
   'Yahoo reported no volume for this bar': '雅虎未提供该K线的成交量',
 
@@ -108,7 +109,7 @@ const ZH = {
   'BAR': 'K线', 'OPEN': '开盘', 'HIGH': '最高', 'LOW': '最低', 'CLOSE': '收盘', 'CHG': '涨跌', 'RANGE': '振幅', 'VOLUME': '成交量',
   'last close sits at ': '最新收盘位于', 'last bar ': '最新K线 ',
   'Hourly bars are kept only for current holdings, the benchmarks, and anything traded in the last five weeks. Yahoo serves intraday history for a recent window only, so there is nothing to back-fill for an older position.': '盘中K线只保留当前持仓、基准，以及最近五周内交易过的代码。雅虎只提供最近一段时间的盘中历史，更早的持仓无法回补。',
-  'A bar is stamped with the hour it opened, in the exchange\'s own time, and Wealthsimple stamps fills the same way — so ▲/▼ sit in the hour that actually printed them. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.': '每根K线以其开始的整点标记，使用交易所本地时间；Wealthsimple 的成交时间也是同一时区 —— 因此 ▲/▼ 落在真正成交的那个小时里。盘中交易时段内，最新一根K线仍在形成中。多伦多交易所大部分标的的开盘K线，雅虎不提供成交量，这些显示为 — 并且不计入均值，而不是当作零。盘中K线不做拆股与分红调整；雅虎只提供最近一个月，并且每次是重新抓取而非累积。',
+  'A bar is stamped with the hour it opened, in the exchange\'s own time. Wealthsimple stamps an order when it was placed, never when it filled, so ▲/▼ mark the hour an order was entered; one queued before the open is drawn at the open, because nothing in the export says when it actually executed. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.': '每根K线以其开始的整点标记，使用交易所本地时间。Wealthsimple 记录的是下单时间而非成交时间，因此 ▲/▼ 标记的是下单所在的那个小时；开盘前挂的单画在开盘处，因为导出文件没有说明它究竟何时成交。盘中交易时段内，最新一根K线仍在形成中。多伦多交易所大部分标的的开盘K线，雅虎不提供成交量，这些显示为 — 并且不计入均值，而不是当作零。盘中K线不做拆股与分红调整；雅虎只提供最近一个月，并且每次是重新抓取而非累积。',
 
   'ACTUAL PORTFOLIO': '实际组合', 'TRANSFER': '转移', 'SOURCE': '来源', 'RESIDUAL': '残差',
   'WHERE THE GAIN COMES FROM': '收益从何而来', 'campaign P&L is trades only · this ties it to the figure PERF reports': '持仓周期盈亏只含交易 · 此处与业绩表现页的收益对账',
@@ -339,6 +340,9 @@ const ZH_PATTERNS = [
 
   [/^(\d+) bars over (\d+) sessions · exchange local time$/, '$2 个交易日共 $1 根K线 · 交易所本地时间'],
   [/^(\d+) bars report none$/, '$1 根K线未提供'],
+  [/^ordered (\d{2}:\d{2})$/, '$1 下单'],
+  [/^ordered (.+) (\d{2}:\d{2}), executed next session$/, '$1 $2 下单，下一交易时段成交'],
+
   [/^report is from (.+) · your trades run to (.+)$/, '报告截至 $1 · 你的交易记录到 $2'],
   [/^report is from (.+)$/, '报告截至 $1'], [/^as of (.+)$/, '截至 $1'],
   [/^trades run to (.+)$/, '交易记录到 $1'],

@@ -1136,17 +1136,17 @@ function intradayPanel(t, bars, trades, toListed) {
   const avgVol = known.length ? known.reduce((a, r) => a + r.Volume, 0) / known.length : null;
   const up = moved.filter(r => r.chg > 0).length;
 
-  // The export stamps a fill time, so a trade lands in the hour that actually printed it.
+  // Only an order placed inside its own session has a time worth trusting. One queued earlier filled at
+  // some unknown point, so it is drawn at the open rather than claiming an hour it never had.
   const markers = [];
   for (const tr of trades) {
     if (!keep.has(tr.date)) continue;
-    const stamp = `${tr.date}T${tr.time || '00:00'}`;
-    let i = -1;
-    rows.forEach((r, k) => { if (r.Datetime.slice(0, 16) <= stamp && r.Datetime.slice(0, 10) === tr.date) i = k; });
-    if (i < 0) i = rows.findIndex(r => r.Datetime.slice(0, 10) === tr.date);
-    if (i < 0) continue;
-    markers.push({ i, y: toListed(tr.px, tr.cur, tr.date), side: tr.side,
-      label: `${tr.acct} ${tr.qty} @ ${num(tr.px)} ${tr.cur}${tr.time ? ` · ${tr.time}` : ''}` });
+    const session = rows.filter(r => r.Datetime.slice(0, 10) === tr.date);
+    if (!session.length) continue;
+    const placed = !tr.queued && tr.time ? `${tr.date}T${tr.time}` : null;
+    const bar = (placed && [...session].reverse().find(r => r.Datetime.slice(0, 16) <= placed)) || session[0];
+    markers.push({ i: rows.indexOf(bar), y: toListed(tr.px, tr.cur, tr.date), side: tr.side,
+      label: `${tr.acct} ${tr.qty} @ ${num(tr.px)} ${tr.cur} · ${placed ? `ordered ${tr.time}` : 'queued before the open'}` });
   }
 
   return panel('INTRADAY · 60-MINUTE BARS', `${rows.length} bars over ${Math.min(days.length, span[1])} sessions · exchange local time`, ctl,
@@ -1176,7 +1176,7 @@ function intradayPanel(t, bars, trades, toListed) {
       { k: 'rangePct', label: 'RANGE', sm: false, fmt: r => h('span', {}, num(r.range, 2), h('span', { class: 'mut' }, ` · ${pct(r.rangePct, 2)}`)) },
       { k: 'Volume', label: 'VOLUME', fmt: r => volReported(r) ? vol(r.Volume) : h('span', { class: 'mut', title: 'Yahoo reported no volume for this bar' }, '—') },
     ], rows, { sortKey: 'Datetime', max: 400 }),
-    h('div', { class: 'body mut' }, 'A bar is stamped with the hour it opened, in the exchange\'s own time, and Wealthsimple stamps fills the same way — so ▲/▼ sit in the hour that actually printed them. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.'));
+    h('div', { class: 'body mut' }, 'A bar is stamped with the hour it opened, in the exchange\'s own time. Wealthsimple stamps an order when it was placed, never when it filled, so ▲/▼ mark the hour an order was entered; one queued before the open is drawn at the open, because nothing in the export says when it actually executed. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.'));
 }
 
 // ---------- ledger vs broker snapshot ----------
@@ -1257,7 +1257,9 @@ async function loadSymbol(t) {
     intradayPanel(t, bars, trades, toListed),
     optionsPanel(t.yahoo, t.sym),
     panel('TRADES', null, h('button', { 'aria-pressed': 'false', onclick: () => { trades.forEach(x => state.simSel.add(x.id)); saveSel(); state.simResult = null; state.simMode = 'REMOVE TRADES'; go('SIM'); } }, `SIMULATE WITHOUT ${t.sym} →`), table([
-      { k: 'date', label: 'DATE', l: true, fmt: r => h('span', {}, r.date, r.time ? h('span', { class: 'mut' }, ` ${r.time}`) : null) },
+      { k: 'date', label: 'EXECUTED', l: true, fmt: r => h('span', {}, r.date, r.time
+        ? h('span', { class: 'mut', title: r.queued ? `ordered ${r.booked} ${r.time}, executed next session` : 'order placed' }, ` ${r.queued ? '◷' : ''}${r.time}`)
+        : null) },
       { k: 'acct', sm: false, label: 'ACCOUNT', l: true },
       { k: 'side', label: 'SIDE', l: true, fmt: r => h('span', { class: r.side === 'BUY' ? 'up' : 'down' }, r.side === 'BUY' ? '▲' : '▼', h('span', { class: 'sm-hide' }, ' ' + r.side)) },
       { k: 'qty', sm: false, label: 'QTY', fmt: r => +r.qty.toFixed(6) }, { k: 'px', sm: false, label: 'PRICE', fmt: r => h('span', {}, num(r.px), ' ', h('span', { class: 'tag' }, r.cur)) },

@@ -201,9 +201,12 @@ def main():
                 edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
                 if q < 0:
                     edge = (price - now) * -q
+        queued = a['booked_date'] != a['effective_date']
         trades.append(dict(id=engine.trade_id(a), cat=category(sym, acct), date=a['effective_date'],
-                           # the export's fill time, so an intraday chart can place the trade in its session
-                           time=(a['effective_time'] or '')[:5] or None,
+                           # when the order was placed, and whether it sat overnight before executing --
+                           # an intraday chart can only claim an hour for orders placed inside the session
+                           time=(a['order_time'] or '')[:5] or None, queued=queued,
+                           booked=a['booked_date'] if queued else None,
                            acct=acct, sym=sym, cur=cur, side='BUY' if q > 0 else 'SELL',
                            qty=abs(q), px=round(price, 4), amt=r2(float(a['net_cash_amount'])),
                            now=r2(now), edge=r2(edge),

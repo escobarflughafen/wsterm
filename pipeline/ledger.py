@@ -3,14 +3,35 @@
 Usage: python3 pipeline/ledger.py [activities.csv] [holdings.csv]
 Defaults to the merged exports in the store (EXPORTS_DIR).
 """
-import csv, collections, sys
+import csv, collections, re, sys
 
 import store
 
+EXECUTED_AT = re.compile(r'executed at (\d{4}-\d{2}-\d{2})')
+
 
 def load_activities(path=None):
+    """Activities keyed by the date each one actually executed.
+
+    Wealthsimple's effective_date/effective_time record when the *order was placed*, not when it filled.
+    Nearly two thirds of trade stamps fall outside 09:30-16:00, and an order queued after the close is
+    booked that evening but executes the next session -- 386 rows in this history, every one of them off
+    by exactly a day. The description carries the real date, so that is what every downstream
+    calculation gets: cost basis, forward-return scoring, the daily series and the charts.
+
+    The booked pair stays alongside under booked_date/order_time, because it is what identifies a row to
+    the broker (and to trade_id) and it is worth showing.
+    """
     rows = list(csv.DictReader(open(path))) if path else store.load_activity_rows()
-    return sorted(rows, key=lambda x: (x['effective_date'], x['effective_time']))
+    for r in rows:
+        m = EXECUTED_AT.search(r.get('description') or '')
+        booked, executed = r['effective_date'], (m.group(1) if m else r['effective_date'])
+        r['booked_date'], r['order_time'] = booked, r['effective_time']
+        r['effective_date'] = executed
+        # An order queued before its session has no fill time at all; keep it ahead of that day's live
+        # orders rather than pretending 23:13 happened after 09:32.
+        r['effective_time'] = r['order_time'] if executed == booked else '00:00:00'
+    return sorted(rows, key=lambda x: (x['effective_date'], x['effective_time'], x['booked_date'], x['order_time']))
 
 
 def holding_rows(path=None):
