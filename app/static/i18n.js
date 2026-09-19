@@ -100,6 +100,13 @@ const ZH = {
   'The report is not older than your trades, so these lines are a real disagreement: an activity export may be missing rows. Re-export the full activity history.': '报告并不比你的交易更旧，因此这些差异是真正的不一致：活动导出可能缺少某些行。请重新导出完整的活动历史。',
 
   'EXECUTED': '成交日', 'order placed': '下单时间', 'queued before the open': '开盘前挂单',
+  // RULE: 待办 + 我的规则
+  'TO DO': '待办', 'ALL DONE': '全部完成', 'STILL TO PUT IN': '还需投入', 'MY RULES': '我的规则',
+  'THIS MONTH': '本月', '☑ DONE': '☑ 已完成', '☐ TO DO': '☐ 待办', '✓ HOLDS': '✓ 守住', '✕ BROKEN': '✕ 破了',
+  'nothing outstanding': '没有未了事项', 'across the unticked items': '未完成项合计', 'all holding': '全部守住',
+  'my own words, my own thresholds': '我自己的说法，我自己的阈值',
+  'on a dip': '回调中',
+
   // 配置与定投
   'satellite': '卫星仓', 'SATELLITE': '卫星仓',
   'SCHEDULED DEPLOYMENT': '定投计划', 'USD ladder · CAD monthly · no currency conversion either way': '美元阶梯 · 加元月供 · 两边都不换汇',
@@ -354,6 +361,17 @@ const ZH_PATTERNS = [
   [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$4）'],
   [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
   [/^(\d+) MONTHS$/, '$1 个月'],
+  [/^(\d+) LEFT$/, '还剩 $1 项'], [/^(\d+)\/(\d+) ticked$/, '已完成 $1/$2'],
+  [/^(\d+)\/(\d+) HOLD$/, '$1/$2 守住'], [/^(\d+) broken$/, '$1 条破了'],
+  [/^(\d+) still to do · as of (.+)$/, '还有 $1 项待办 · 截至 $2'],
+  [/^(\d+) broken · my own words, my own thresholds$/, '$1 条破了 · 我自己的说法，我自己的阈值'],
+  [/^Buy ([A-Z0-9.]+) this month$/, '本月买入 $1'],
+  [/^Deploy USD into ([A-Z0-9.]+)$/, '把美元投入 $1'],
+  [/^Trim ([A-Z0-9.]+) by (\d+)%$/, '$1 减仓 $2%'],
+  [/^Decide on the ([A-Z0-9.]+) (call|put)$/, (m, r, k) => `处理 ${r} ${k === 'call' ? '看涨' : '看跌'}期权`],
+  [/^Stay under (\d+) registered trades$/, '注册账户交易保持在 $1 笔以内'],
+  [/^Import a fresh holdings report$/, '导入一份新的持仓报告'],
+
 
   [/^ordered (\d{2}:\d{2})$/, '$1 下单'],
   [/^ordered (.+) (\d{2}:\d{2}), executed next session$/, '$1 $2 下单，下一交易时段成交'],

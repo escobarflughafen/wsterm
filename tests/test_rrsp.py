@@ -138,3 +138,34 @@ def test_satellite_bucket_and_deployment_rules(fixture_bytes, synthetic_market, 
     p = d['dca']
     assert p['target'] == 'VOO' and p['unit_usd'] == 640.0
     assert p['shares_now'] == int(p['usd_cash'] // 640.0)
+
+
+def test_rules_carry_my_own_wording_and_a_monthly_todo(fixture_bytes, synthetic_market, monkeypatch):
+    """A rule renamed in config keeps its mechanical spec beside it, and the to-do list is actionable."""
+    import json
+    import build_app
+    from settings import BUILD_DIR, CONFIG_PATH
+
+    cfg = json.load(open(CONFIG_PATH))
+    cfg['rule_text'] = {'single_stock': '单一个股别超过 4%'}
+    cfg['rules']['min_monthly_core_cad'] = 1000
+    cfg['dca'] = dict(usd_ladder=['VOO'], usd_dip_ticker='VOO', usd_dip_pct=-0.02,
+                      cad_ticker='VOO', monthly_cad=1000)
+    monkeypatch.setattr(build_app, 'CFG', cfg)
+    monkeypatch.setattr(build_app.engine, 'CFG', cfg)
+
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv')])['id'])
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+
+    mine = next(r for r in d['rules'] if r['id'] == 'single_stock')
+    assert mine['name'] == '单一个股别超过 4%'          # my words on top
+    assert mine['spec'].startswith('SINGLE STOCK')     # the threshold still shown underneath
+    untouched = next(r for r in d['rules'] if r['id'] == 'averaging_down')
+    assert untouched['name'] == untouched['spec']      # no override, no change
+
+    todos = {t['id']: t for t in d['todos']}
+    assert todos['core_buy']['done'] is False
+    assert todos['core_buy']['amount'] > 0             # how much is still owed, not just that it failed
+    assert 'of $1,000 net' in todos['core_buy']['detail']
+    assert todos['trade_budget']['done'] is True

@@ -299,14 +299,18 @@ def main():
     today = dt.date.fromisoformat(series['dates'][-1])
     rules = []
 
-    def rule(name, ok, detail, items=()):
-        rules.append(dict(name=name, ok=ok, detail=detail, items=list(items)))
+    # Each rule carries a stable id so it can be renamed in config without the code knowing the wording.
+    # A rule you wrote in your own words is one you argue with; a generated label is one you scroll past.
+    MINE = CFG.get('rule_text') or {}
+
+    def rule(rid, name, ok, detail, items=()):
+        rules.append(dict(id=rid, name=MINE.get(rid) or name, spec=name, ok=ok, detail=detail, items=list(items)))
 
     big = [f"{x['acct']} {x['sym']} {x['weight']:.1%}" for x in rows
            if x['cat'] == 'stocks' and x['weight'] > R['max_single_stock_pct']]
-    rule(f"SINGLE STOCK ≤ {R['max_single_stock_pct']:.0%} OF TOTAL", not big, 'All positions within limit' if not big else f'{len(big)} over limit', big)
+    rule('single_stock', f"SINGLE STOCK ≤ {R['max_single_stock_pct']:.0%} OF TOTAL", not big, 'All positions within limit' if not big else f'{len(big)} over limit', big)
     spec_pct = alloc['speculative'] / invested if invested else 0
-    rule(f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],
+    rule('speculative', f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],
          f'Now {spec_pct:.1%}', [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['cat'] == 'speculative'])
     # A satellite is a deliberate structural bet -- currently KWEB, the only non-US, non-Canada holding
     # against a 71% US book. It gets its own cap so the speculative rule stops flagging it, and the cap is
@@ -320,13 +324,13 @@ def main():
             for x in held:
                 if x['sym'] == sym and x['qty']:
                     items.append(f"{sym} exit target: sell {x['qty']*frac:g} of {x['qty']:g} shares (~${x['mv_cad']*frac:,.0f})")
-        rule(f"SATELLITE ≤ {sat_cap:.0%} OF INVESTED", sat_pct <= sat_cap, f'Now {sat_pct:.1%}', items)
+        rule('satellite', f"SATELLITE ≤ {sat_cap:.0%} OF INVESTED", sat_pct <= sat_cap, f'Now {sat_pct:.1%}', items)
 
     off_cap = R.get('max_offense_cad_nonregistered')
     if off_cap:
         off = [x for x in rows if x['acct'] == 'Non-registered' and x['cat'] == 'speculative']
         spent = sum(x['mv_cad'] for x in off)
-        rule(f"NON-REGISTERED OFFENCE ≤ ${off_cap:,.0f}", spent <= off_cap,
+        rule('offence', f"NON-REGISTERED OFFENCE ≤ ${off_cap:,.0f}", spent <= off_cap,
              f'${spent:,.0f} of ${off_cap:,.0f} · ${off_cap-spent:,.0f} left',
              [f"{x['sym']} ${x['mv_cad']:,.0f}" for x in off])
 
@@ -335,25 +339,25 @@ def main():
     registered = set(CFG.get('registered_accounts', ['TFSA']))
     present = [a for a in sorted({r['acct'] for r in rows}) if a in registered]
     lev_reg = [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['acct'] in registered and x['cat'] == 'speculative']
-    rule('NO LEVERAGED/THEMATIC ETFS IN REGISTERED ACCOUNTS', not lev_reg,
+    rule('leveraged_registered', 'NO LEVERAGED/THEMATIC ETFS IN REGISTERED ACCOUNTS', not lev_reg,
          ('Clean' if not lev_reg else f'{len(lev_reg)} held') + (f" · checking {', '.join(present)}" if present else ''), lev_reg)
     dd = [f"{x['acct']} {x['sym']} {x['upl_pct']:+.1%}" for x in rows
           if x['upl_pct'] is not None and x['upl_pct'] <= R['review_drawdown_pct'] and x['cat'] != 'cash']
-    rule(f"REVIEW POSITIONS ≤ {R['review_drawdown_pct']:.0%}", not dd, 'None below threshold' if not dd else f'{len(dd)} need a decision', dd)
+    rule('review_drawdown', f"REVIEW POSITIONS ≤ {R['review_drawdown_pct']:.0%}", not dd, 'None below threshold' if not dd else f'{len(dd)} need a decision', dd)
     cutoff = (today - dt.timedelta(days=R['averaging_down_lookback_days'])).isoformat()
     ad = [f"{t['date']} {t['acct']} {t['sym']} {t['qty']:g} @ {t['px']:g}" for t in trades if t['avgdown'] and t['date'] >= cutoff]
-    rule(f"NO AVERAGING DOWN (LAST {R['averaging_down_lookback_days']}D)", not ad, f'{len(ad)} buys below average cost', ad[-15:])
+    rule('averaging_down', f"NO AVERAGING DOWN (LAST {R['averaging_down_lookback_days']}D)", not ad, f'{len(ad)} buys below average cost', ad[-15:])
     if CFG['rules'].get('require_monthly_core_buy'):
         recent = contributions['months'][-6:]
         missed = [m for m, v in zip(contributions['months'], contributions['core'])][-6:]
         missed = [m for m, v in zip(recent, contributions['core'][-6:]) if abs(v) <= 1]
         floor = R.get('min_monthly_core_cad', 0)
         small = [f'{m}: ${v:,.0f}' for m, v in zip(recent, contributions['core'][-6:]) if 1 < v < floor]
-        rule('CORE ETF PURCHASE EVERY MONTH', not missed, f"last 6 months: {6 - len(missed)}/6 with a purchase", missed)
+        rule('monthly_core', 'CORE ETF PURCHASE EVERY MONTH', not missed, f"last 6 months: {6 - len(missed)}/6 with a purchase", missed)
         if floor:
             this_month = contributions['core'][-1] if contributions['core'] else 0
             # net, not gross: rotating one core fund into another is not a deployment
-            rule(f"MONTHLY CORE BUY ≥ ${floor:,.0f} NET", this_month >= floor,
+            rule('monthly_core_size', f"MONTHLY CORE BUY ≥ ${floor:,.0f} NET", this_month >= floor,
                  f"{contributions['months'][-1] if contributions['months'] else '—'}: ${this_month:,.0f} of ${floor:,.0f}",
                  small)
 
@@ -365,7 +369,7 @@ def main():
             per_acct[t['acct']][t['date'][:7]] += 1
     over = [f'{a} {month}: {c[month]} trades' for a, c in sorted(per_acct.items()) if c[month] > cap]
     recent = [f'{a} {m}: {n}' for a, c in sorted(per_acct.items()) for m, n in sorted(c.items())[-3:]]
-    rule(f'REGISTERED TRADES ≤ {cap}/MONTH', not over,
+    rule('registered_trades', f'REGISTERED TRADES ≤ {cap}/MONTH', not over,
          f"{month}: " + (', '.join(f'{a} {c[month]}' for a, c in sorted(per_acct.items())) or 'no registered trades'),
          over + recent[-9:])
 
@@ -373,6 +377,7 @@ def main():
     # USD cash is spent in USD and CAD in CAD: no conversion, so no 1.5% FX drag on either side.
     # The ladder buys the steadier fund by default and the more volatile one only after a drop.
     dca = None
+    P_CAD = (CFG.get('dca') or {}).get('cad_ticker', 'core ETF')
     if CFG.get('dca'):
         P = CFG['dca']
 
@@ -405,6 +410,50 @@ def main():
             cad_available=r2(cad_cash),
             cad_months=int(cad_cash // P['monthly_cad']) if P['monthly_cad'] else None,
         )
+
+    # ---------- this month's to-do ----------
+    # The rules above say whether a standing commitment holds. These say what is still unticked *this
+    # month* -- a list you can finish, not a dashboard you can look at.
+    todos = []
+
+    def todo(tid, text, done, detail='', amount=None):
+        todos.append(dict(id=tid, text=text, done=bool(done), detail=detail, amount=amount))
+
+    month_label = contributions['months'][-1] if contributions['months'] else today.strftime('%Y-%m')
+    net_core = contributions['core'][-1] if contributions['core'] else 0.0
+    floor = R.get('min_monthly_core_cad', 0)
+    if floor:
+        short = floor - net_core
+        todo('core_buy', f"Buy {P_CAD} this month", net_core >= floor,
+             f"{month_label}: ${net_core:,.0f} of ${floor:,.0f} net"
+             + ('' if net_core >= floor else f" · ${short:,.0f} to go"),
+             None if net_core >= floor else r2(short))
+    if dca and dca['usd_cash'] and dca['shares_now']:
+        todo('usd_ladder', f"Deploy USD into {dca['target']}", False,
+             f"${dca['usd_cash']:,.0f} left · {dca['shares_now']} shares @ ${dca['unit_usd']:,.2f}"
+             + (' · on a dip' if dca['on_dip'] else f" · no dip ({dca['dip_5d']:+.2%} 5D)"),
+             r2(dca['unit_usd']))
+    for sym, frac in (CFG.get('satellite_exit') or {}).items():
+        for x in rows:
+            if x['sym'] == sym and x['qty']:
+                cap = R.get('max_satellite_pct_of_invested', 1)
+                todo('trim_' + sym.lower(), f"Trim {sym} by {frac:.0%}",
+                     x['mv_cad'] / invested <= cap if invested else False,
+                     f"sell {x['qty']*frac:g} of {x['qty']:g} shares (~${x['mv_cad']*frac:,.0f}) · "
+                     f"now {x['mv_cad']/invested:.1%} of invested, cap {cap:.0%}", r2(x['mv_cad'] * frac))
+    for o in open_options:
+        if not o['expired']:
+            todo('option_' + o['symbol'].split()[0].lower(), f"Decide on the {o['root']} {o['right'].lower()}", False,
+                 f"expires {o['expiry']} · {o['days_to_expiry']}d · "
+                 + ('' if o['intrinsic_pl'] is None else f"{o['intrinsic_pl']:+,.0f} {o.get('cur','USD')} if it expired today"))
+    cap_tr = R.get('max_trades_per_month_registered', R.get('max_tfsa_trades_per_month', 20))
+    used = max((c[month] for c in per_acct.values()), default=0)
+    todo('trade_budget', f"Stay under {cap_tr} registered trades", used <= cap_tr,
+         f"{month_label}: {used} used, {max(0, cap_tr-used)} left")
+    if reconcile and reconcile['stale']:
+        todo('holdings_report', 'Import a fresh holdings report', False,
+             f"last one {reconcile['asof']} · your trades run to {reconcile['newest_activity']}"
+             f" · {len(reconcile['differences'])} lines differ")
 
     # ---------- income ----------
     income = collections.defaultdict(lambda: collections.defaultdict(float))
@@ -454,6 +503,7 @@ def main():
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
         dca=dca,
+        todos=todos,
         options=open_options,
         audit=audit.build(acts, cal, gain=total_now - contrib_now),
         events=events,

@@ -255,3 +255,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focu
 .guide ul.plain { font-family: var(--sans); color: var(--ink2); display: grid; gap: 4px; }
 .guide ul.plain li { white-space: normal; }
 .guide img { width: 100%; max-width: 900px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+/* RULE: a list you finish, then the commitments that stand behind it */
+.rule.todo .st { min-width: 74px; }
+.rule.todo.done .nm { color: var(--muted); text-decoration: line-through; }
+.rule .spec { font: 9px var(--mono); letter-spacing: .04em; opacity: .65; margin-top: 2px; }

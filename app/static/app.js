@@ -585,7 +585,6 @@ const SCREEN = {
         stat('CASH & CASH ETFS', money(now.cash), `${pct(now.cash / total)} of total`),
         stat('INVESTED', money(inv), `${pct(inv / total)} of total`),
         ...Object.keys(A.targets).map(k => stat(k.toUpperCase(), pct((now[k] || 0) / inv), `target ${pct(A.targets[k], 0)} of invested`))),
-      deployPanel(),
       panel('INVESTED MIX VS TARGET', 'bar = now · white tick = target · $ = amount over (+) or under (−) target', null, h('div', { class: 'body alloc' }, rows)),
       contributionsPanel(),
       panel('BY ACCOUNT', 'CAD', null, table([
@@ -598,12 +597,29 @@ const SCREEN = {
 
   RULE() {
     const bad = D.rules.filter(r => !r.ok).length;
+    const todos = D.todos || [];
+    const left = todos.filter(t => !t.done);
+    const owed = left.reduce((a, t) => a + (t.amount || 0), 0);
+    const P = D.dca;
     return [
-      h('div', { class: 'stats' }, stat('RULES', `${D.rules.length - bad}/${D.rules.length} PASS`, 'edit thresholds in pipeline/config.json')),
-      panel('CHECKS', `as of ${D.price_date}`, null, h('div', {}, D.rules.map(r => h('div', { class: 'rule' },
-        h('span', { class: 'st ' + (r.ok ? 'up' : 'down') }, r.ok ? '✓ PASS' : '✕ FAIL'),
-        h('div', {}, h('div', {}, h('span', { class: 'nm' }, r.name), '  ', h('span', { class: 'mut' }, r.detail)),
-          r.items.length ? h('ul', {}, r.items.map(i => h('li', {}, i))) : null))))),
+      h('div', { class: 'stats' },
+        stat('TO DO', left.length ? `${left.length} LEFT` : 'ALL DONE', `${todos.length - left.length}/${todos.length} ticked`),
+        stat('STILL TO PUT IN', owed ? money(owed) : '—', owed ? 'across the unticked items' : 'nothing outstanding'),
+        stat('MY RULES', `${D.rules.length - bad}/${D.rules.length} HOLD`, bad ? `${bad} broken` : 'all holding'),
+        P ? stat('NEXT USD BUY', h('span', { raw: true }, P.target),
+          P.on_dip ? 'on a dip' : h('span', {}, h('span', { raw: true }, P.dip_ticker), ' 5D ', signedPct(P.dip_5d, 2))) : null),
+      panel('THIS MONTH', `${left.length} still to do · as of ${D.price_date}`, null,
+        h('div', {}, todos.map(t => h('div', { class: 'rule todo' + (t.done ? ' done' : '') },
+          h('span', { class: 'st ' + (t.done ? 'up' : 'amb') }, t.done ? '☑ DONE' : '☐ TO DO'),
+          h('div', {}, h('div', {}, h('span', { class: 'nm' }, t.text),
+            t.amount ? h('b', { class: 'amb' }, `  ${money(t.amount)}`) : null),
+            h('div', { class: 'mut' }, t.detail)))))),
+      panel('MY RULES', `${bad ? bad + ' broken' : 'all holding'} · my own words, my own thresholds`, null,
+        h('div', {}, D.rules.map(r => h('div', { class: 'rule' },
+          h('span', { class: 'st ' + (r.ok ? 'up' : 'down') }, r.ok ? '✓ HOLDS' : '✕ BROKEN'),
+          h('div', {}, h('div', {}, h('span', { class: 'nm' }, r.name), '  ', h('span', { class: 'mut' }, r.detail)),
+            r.spec && r.spec !== r.name ? h('div', { class: 'mut spec' }, r.spec) : null,
+            r.items.length ? h('ul', {}, r.items.map(i => h('li', {}, i))) : null))))),
     ];
   },
 
