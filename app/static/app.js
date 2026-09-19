@@ -1,7 +1,7 @@
 'use strict';
 const SCREENS = [
   ['PORT', 'PORTFOLIO'], ['PERF', 'PERFORMANCE'], ['PNL', 'REALIZED P&L'], ['TRD', 'TRADES'],
-  ['ALOC', 'ALLOCATION'], ['RULE', 'RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
+  ['ALOC', 'ALLOCATION'], ['RULE', 'TO DO & RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
 ];
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
@@ -554,7 +554,10 @@ const SCREEN = {
         stat('BUYS SINCE (CAD)', signed(sum(buys)), 'gain from buy price to today'),
         stat('AVERAGING-DOWN BUYS', nf0.format(ad), 'stock/spec buys >2% below avg cost')),
       panel('TRADE BLOTTER', 'native currency · hindsight uses latest close, split-adjusted', ctl, table([
-        { k: 'date', label: 'DATE', l: true },
+        { k: 'date', label: 'EXECUTED', l: true, fmt: r => h('span', {}, r.date, r.time
+          ? h('span', { class: 'mut', title: r.queued ? `ordered ${r.booked} ${r.time}, executed next session` : 'order placed' },
+            ` ${r.queued ? '◷' : ''}${r.time}`)
+          : null) },
         { k: 'acct', sm: false, label: 'ACCOUNT', l: true },
         { k: 'side', label: 'SIDE', l: true, fmt: r => h('span', { class: r.side === 'BUY' ? 'up' : 'down' }, r.side === 'BUY' ? '▲' : '▼', h('span', { class: 'sm-hide' }, ' ' + r.side)) },
         { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: 'amb', raw: true }, r.sym), ' ', h('span', { class: 'tag' }, r.cur)) },
@@ -882,6 +885,7 @@ const SCREEN = {
     const change = () => { saveSel(); if (!sel.size) state.simResult = null; const y = window.scrollY; render(); window.scrollTo(0, y); scheduleSim(); };
     const presets = [
       ['AVG↓ BUYS', t => t.avgdown], ['SPECULATIVE', t => t.cat === 'speculative' && t.sym.length <= 10 && t.acct !== 'Crypto'],
+      ['SATELLITE', t => t.cat === 'satellite'],
       ['OPTIONS', t => t.sym.length > 10], ['CRYPTO', t => t.acct === 'Crypto'],
     ];
     const sumCost = [...sel].map(id => byId[id]).filter(Boolean);
@@ -1707,7 +1711,7 @@ function routeFromHash() {
   if (scr === 'SYM' && arg) { if (!state.sym || state.sym.yahoo !== arg || state.screen !== 'SYM') runCommand(arg); }
   else if (SCREEN[scr] && scr !== 'SYM') {
     if (scr === 'SIM' && arg === 'FREEZE') state.simMode = 'FREEZE';
-    if (scr === 'SIM' && arg && arg !== 'FREEZE' && D) { state.simMode = 'REMOVE TRADES'; const f = { SPECULATIVE: t => t.cat === 'speculative', AVGDOWN: t => t.avgdown }[arg]; if (f) D.trades.filter(f).forEach(t => state.simSel.add(t.id)); }
+    if (scr === 'SIM' && arg && arg !== 'FREEZE' && D) { state.simMode = 'REMOVE TRADES'; const f = { SPECULATIVE: t => t.cat === 'speculative', SATELLITE: t => t.cat === 'satellite', AVGDOWN: t => t.avgdown }[arg]; if (f) D.trades.filter(f).forEach(t => state.simSel.add(t.id)); }
     if (state.screen !== scr || !render.last) go(scr, false);
   } else render();
 }
