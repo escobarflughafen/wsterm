@@ -107,6 +107,10 @@ const ZH = {
   'my own words, my own thresholds': '我自己的说法，我自己的阈值',
   'on a dip': '回调中',
 
+  'NO LEVERAGED/THEMATIC ETFS IN REGISTERED ACCOUNTS': '注册账户不持杠杆/主题 ETF',
+  'VIM <GO>  or  top-right VIM': 'VIM <GO> 或右上角 VIM',
+  ':q  or  top-right EXIT VIM': ':q 或右上角 EXIT VIM',
+
   // 配置与定投
   'satellite': '卫星仓', 'SATELLITE': '卫星仓',
   'SCHEDULED DEPLOYMENT': '定投计划', 'USD ladder · CAD monthly · no currency conversion either way': '美元阶梯 · 加元月供 · 两边都不换汇',

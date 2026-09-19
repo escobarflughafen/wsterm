@@ -488,10 +488,12 @@ const SCREEN = {
         ? 'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality.'
         : 'ALL MONEY includes what you parked in cash ETFs, which is why a benchmark can lead. Switch to INVESTED for a like-for-like comparison.');
     }
-    const note = notes.join(' ');
+    // Each note is its own sentence with its own translation; joining them first meant tr() looked up
+    // a pair that no dictionary has.
+    const noteEls = notes.flatMap(n => [h('span', {}, n), ' ']);   // the space is a sibling, not part of the key
     return [panel('PERFORMANCE', `${dates[0]} → ${dates[dates.length - 1]}`, ctl, statsEl,
       h('div', { class: 'body' }, lineChart({ dates, series, yfmt, height: 340, zeroLine: state.mode !== 'VALUE' })),
-      h('div', { class: 'body mut' }, note))];
+      h('div', { class: 'body mut' }, ...noteEls))];
   },
 
   PNL() {
@@ -620,7 +622,7 @@ const SCREEN = {
       panel('MY RULES', `${bad ? bad + ' broken' : 'all holding'} · my own words, my own thresholds`, null,
         h('div', {}, D.rules.map(r => h('div', { class: 'rule' },
           h('span', { class: 'st ' + (r.ok ? 'up' : 'down') }, r.ok ? '✓ HOLDS' : '✕ BROKEN'),
-          h('div', {}, h('div', {}, h('span', { class: 'nm' }, r.name), '  ', h('span', { class: 'mut' }, r.detail)),
+          h('div', {}, h('div', {}, h('span', { class: 'nm', raw: true }, (r.names && r.names[LANG]) || r.name), '  ', h('span', { class: 'mut' }, r.detail)),
             r.spec && r.spec !== r.name ? h('div', { class: 'mut spec' }, r.spec) : null,
             r.items.length ? h('ul', {}, r.items.map(i => h('li', {}, i))) : null))))),
     ];
@@ -1363,9 +1365,11 @@ const EXPORT_STEPS = [
             'Drag that file into **DROP CSV EXPORTS HERE** above. If you also have a **holdings-report-YYYY-MM-DD.csv**, upload both together so the app can check current positions against the activity ledger.'] },
 ];
 function exportGuide() {
+  // Translate the whole sentence first, then split: a fragment like "above the transaction list" is not
+  // something any dictionary should have to carry, and the bold spans move between languages anyway.
   const bold = text => {
     const out = [];
-    text.split(/\*\*(.+?)\*\*/g).forEach((part, i) => out.push(i % 2 ? h('b', { class: 'amb' }, part) : part));
+    tr(text).split(/\*\*(.+?)\*\*/g).forEach((part, i) => out.push(i % 2 ? h('b', { class: 'amb', raw: true }, part) : h('span', { raw: true }, part)));
     return out;
   };
   return panel('HOW TO EXPORT FROM WEALTHSIMPLE', 'activities CSV in four steps · upload it above', null,

@@ -304,7 +304,12 @@ def main():
     MINE = CFG.get('rule_text') or {}
 
     def rule(rid, name, ok, detail, items=()):
-        rules.append(dict(id=rid, name=MINE.get(rid) or name, spec=name, ok=ok, detail=detail, items=list(items)))
+        # rule_text takes either one string (same wording in every language) or {"en": ..., "zh": ...}.
+        # Your own words should not be machine-translated, but you should be able to write both.
+        mine = MINE.get(rid)
+        names = dict(mine) if isinstance(mine, dict) else ({} if mine is None else dict(en=mine, zh=mine))
+        rules.append(dict(id=rid, name=names.get('en') or name, names=names, spec=name,
+                          ok=ok, detail=detail, items=list(items)))
 
     big = [f"{x['acct']} {x['sym']} {x['weight']:.1%}" for x in rows
            if x['cat'] == 'stocks' and x['weight'] > R['max_single_stock_pct']]
