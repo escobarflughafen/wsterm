@@ -25,8 +25,8 @@ def category(symbol, account):
         return 'speculative'
     if is_option(symbol):
         return 'speculative'
-    for cat in ('core', 'cash', 'speculative'):
-        if symbol in CFG['categories'][cat]:
+    for cat in ('core', 'cash', 'satellite', 'speculative'):
+        if symbol in CFG['categories'].get(cat, ()):
             return cat
     return 'stocks'
 
@@ -308,6 +308,28 @@ def main():
     spec_pct = alloc['speculative'] / invested if invested else 0
     rule(f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],
          f'Now {spec_pct:.1%}', [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['cat'] == 'speculative'])
+    # A satellite is a deliberate structural bet -- currently KWEB, the only non-US, non-Canada holding
+    # against a 71% US book. It gets its own cap so the speculative rule stops flagging it, and the cap is
+    # set at the trim the user decided on rather than at today's size.
+    sat_cap = R.get('max_satellite_pct_of_invested')
+    if sat_cap:
+        sat_pct = alloc.get('satellite', 0.0) / invested if invested else 0
+        held = [x for x in rows if x['cat'] == 'satellite']
+        items = [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f} ({x['mv_cad']/invested:.1%} of invested)" for x in held]
+        for sym, frac in (CFG.get('satellite_exit') or {}).items():
+            for x in held:
+                if x['sym'] == sym and x['qty']:
+                    items.append(f"{sym} exit target: sell {x['qty']*frac:g} of {x['qty']:g} shares (~${x['mv_cad']*frac:,.0f})")
+        rule(f"SATELLITE ≤ {sat_cap:.0%} OF INVESTED", sat_pct <= sat_cap, f'Now {sat_pct:.1%}', items)
+
+    off_cap = R.get('max_offense_cad_nonregistered')
+    if off_cap:
+        off = [x for x in rows if x['acct'] == 'Non-registered' and x['cat'] == 'speculative']
+        spent = sum(x['mv_cad'] for x in off)
+        rule(f"NON-REGISTERED OFFENCE ≤ ${off_cap:,.0f}", spent <= off_cap,
+             f'${spent:,.0f} of ${off_cap:,.0f} · ${off_cap-spent:,.0f} left',
+             [f"{x['sym']} ${x['mv_cad']:,.0f}" for x in off])
+
     # Registered accounts (TFSA, FHSA, RRSP...): a loss there is permanent and cannot be claimed, so the same
     # guardrails apply to every one of them, not just the TFSA.
     registered = set(CFG.get('registered_accounts', ['TFSA']))
@@ -325,7 +347,15 @@ def main():
         recent = contributions['months'][-6:]
         missed = [m for m, v in zip(contributions['months'], contributions['core'])][-6:]
         missed = [m for m, v in zip(recent, contributions['core'][-6:]) if abs(v) <= 1]
+        floor = R.get('min_monthly_core_cad', 0)
+        small = [f'{m}: ${v:,.0f}' for m, v in zip(recent, contributions['core'][-6:]) if 1 < v < floor]
         rule('CORE ETF PURCHASE EVERY MONTH', not missed, f"last 6 months: {6 - len(missed)}/6 with a purchase", missed)
+        if floor:
+            this_month = contributions['core'][-1] if contributions['core'] else 0
+            # net, not gross: rotating one core fund into another is not a deployment
+            rule(f"MONTHLY CORE BUY ≥ ${floor:,.0f} NET", this_month >= floor,
+                 f"{contributions['months'][-1] if contributions['months'] else '—'}: ${this_month:,.0f} of ${floor:,.0f}",
+                 small)
 
     month = today.strftime('%Y-%m')
     cap = R.get('max_trades_per_month_registered', R.get('max_tfsa_trades_per_month', 20))
@@ -338,6 +368,43 @@ def main():
     rule(f'REGISTERED TRADES ≤ {cap}/MONTH', not over,
          f"{month}: " + (', '.join(f'{a} {c[month]}' for a, c in sorted(per_acct.items())) or 'no registered trades'),
          over + recent[-9:])
+
+    # ---------- scheduled deployment ----------
+    # USD cash is spent in USD and CAD in CAD: no conversion, so no 1.5% FX drag on either side.
+    # The ladder buys the steadier fund by default and the more volatile one only after a drop.
+    dca = None
+    if CFG.get('dca'):
+        P = CFG['dca']
+
+        def last_close(sym):
+            t = tmap.get((sym, 'USD')) or tmap.get((sym, 'CAD')) or sym
+            try:
+                return float(history(t)['Close'].dropna().iloc[-1]), t
+            except (FileNotFoundError, IndexError):
+                return None, t
+
+        alt_px, alt_t = last_close(P['usd_dip_ticker'])
+        try:
+            c = history(alt_t)['Close'].dropna()
+            dip5 = float(c.iloc[-1] / c.iloc[-6] - 1) if len(c) > 5 else None
+        except (FileNotFoundError, IndexError):
+            dip5 = None
+        on_dip = dip5 is not None and dip5 <= P['usd_dip_pct']
+        target = P['usd_dip_ticker'] if on_dip else P['usd_ladder'][0]
+        unit, _ = last_close(target)
+        usd_cash = sum(x['mv'] for x in rows if x['sym'] == 'USD CASH' and x['cur'] == 'USD')
+        cad_px, _ = last_close(P['cad_ticker'])
+        cad_cash = sum(x['mv_cad'] for x in rows if x['cat'] == 'cash' and x['sym'] != 'USD CASH')
+        dca = dict(
+            usd_cash=r2(usd_cash), target=target, on_dip=on_dip,
+            dip_5d=None if dip5 is None else round(dip5, 4), dip_threshold=P['usd_dip_pct'],
+            unit_usd=r2(unit), shares_now=int(usd_cash // unit) if unit else None,
+            default_ticker=P['usd_ladder'][0], dip_ticker=P['usd_dip_ticker'],
+            cad_ticker=P['cad_ticker'], monthly_cad=P['monthly_cad'], cad_unit=r2(cad_px),
+            cad_shares=int(P['monthly_cad'] // cad_px) if cad_px else None,
+            cad_available=r2(cad_cash),
+            cad_months=int(cad_cash // P['monthly_cad']) if P['monthly_cad'] else None,
+        )
 
     # ---------- income ----------
     income = collections.defaultdict(lambda: collections.defaultdict(float))
@@ -386,6 +453,7 @@ def main():
         rules=rules,
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
+        dca=dca,
         options=open_options,
         audit=audit.build(acts, cal, gain=total_now - contrib_now),
         events=events,

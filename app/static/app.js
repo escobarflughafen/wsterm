@@ -579,12 +579,13 @@ const SCREEN = {
     });
     const byAcct = {};
     for (const x of D.holdings) { byAcct[x.acct] ??= {}; byAcct[x.acct][x.cat] = (byAcct[x.acct][x.cat] || 0) + x.mv_cad; }
-    const cats = ['cash', 'core', 'stocks', 'speculative'];
+    const cats = ['cash', 'core', 'stocks', 'satellite', 'speculative'];
     return [
       h('div', { class: 'stats' },
         stat('CASH & CASH ETFS', money(now.cash), `${pct(now.cash / total)} of total`),
         stat('INVESTED', money(inv), `${pct(inv / total)} of total`),
         ...Object.keys(A.targets).map(k => stat(k.toUpperCase(), pct((now[k] || 0) / inv), `target ${pct(A.targets[k], 0)} of invested`))),
+      deployPanel(),
       panel('INVESTED MIX VS TARGET', 'bar = now · white tick = target · $ = amount over (+) or under (−) target', null, h('div', { class: 'body alloc' }, rows)),
       contributionsPanel(),
       panel('BY ACCOUNT', 'CAD', null, table([
@@ -1210,6 +1211,30 @@ function reconcilePanel() {
       { k: 'report', label: 'REPORT', fmt: r => num(r.report, 4) },
       { k: 'diff', label: 'DIFFERENCE', fmt: r => signed(r.diff, x => num(x, 4)) },
     ], R.differences, { sortKey: 'diff' }) : null);
+}
+
+// ---------- scheduled deployment ----------
+// USD is spent in USD and CAD in CAD, so neither side pays the ~1.5% conversion. The USD ladder buys the
+// steadier fund by default and the more volatile one only after a drop, which is the one condition the
+// audit shows this account buys well in.
+function deployPanel() {
+  const P = D.dca;
+  if (!P) return null;
+  const drop = P.dip_5d == null ? null : P.dip_5d;
+  return panel('SCHEDULED DEPLOYMENT', 'USD ladder · CAD monthly · no currency conversion either way', null,
+    h('div', { class: 'stats' },
+      stat('NEXT USD BUY', h('span', { raw: true }, P.target),
+        h('span', {}, P.on_dip ? 'on a dip · ' : 'no dip · ', h('span', { raw: true }, P.dip_ticker), ' 5D ', signedPct(drop, 2))),
+      stat('USD CASH LEFT', money(P.usd_cash, 2), P.shares_now == null ? null
+        : h('span', {}, `${P.shares_now} × `, h('span', { raw: true }, P.target), ` @ ${num(P.unit_usd, 2)}`)),
+      stat('MONTHLY CAD BUY', money(P.monthly_cad), P.cad_shares == null ? null
+        : h('span', {}, `${P.cad_shares} × `, h('span', { raw: true }, P.cad_ticker), ` @ ${num(P.cad_unit, 2)}`)),
+      stat('CAD RUNWAY', P.cad_months == null ? '—' : `${P.cad_months} MONTHS`, money(P.cad_available) + ' in cash and cash ETFs')),
+    h('div', { class: 'body mut' },
+      h('span', {}, 'USD cash buys '), h('b', { raw: true }, P.default_ticker),
+      h('span', {}, ' on schedule, or '), h('b', { raw: true }, P.dip_ticker),
+      h('span', {}, ` when its five-day return is at or below ${(P.dip_threshold * 100).toFixed(0)}%, until the USD is spent. New CAD buys `),
+      h('b', { raw: true }, P.cad_ticker), h('span', {}, ' in the non-registered account.')));
 }
 
 // ---------- symbol screen ----------

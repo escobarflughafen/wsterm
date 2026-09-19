@@ -100,6 +100,13 @@ const ZH = {
   'The report is not older than your trades, so these lines are a real disagreement: an activity export may be missing rows. Re-export the full activity history.': '报告并不比你的交易更旧，因此这些差异是真正的不一致：活动导出可能缺少某些行。请重新导出完整的活动历史。',
 
   'EXECUTED': '成交日', 'order placed': '下单时间', 'queued before the open': '开盘前挂单',
+  // 配置与定投
+  'satellite': '卫星仓', 'SATELLITE': '卫星仓',
+  'SCHEDULED DEPLOYMENT': '定投计划', 'USD ladder · CAD monthly · no currency conversion either way': '美元阶梯 · 加元月供 · 两边都不换汇',
+  'NEXT USD BUY': '下一笔美元买入', 'USD CASH LEFT': '剩余美元现金', 'MONTHLY CAD BUY': '每月加元买入', 'CAD RUNWAY': '加元可投月数',
+  'on a dip · ': '回调中 · ', 'no dip · ': '无回调 · ', ' in cash and cash ETFs': ' 现金及现金 ETF',
+  'USD cash buys ': '美元现金按计划买入 ', ' on schedule, or ': '，或在 ', ' in the non-registered account.': '（非注册账户）。',
+
   // intraday (60-minute bars)
   'Yahoo reported no volume for this bar': '雅虎未提供该K线的成交量',
 
@@ -340,6 +347,14 @@ const ZH_PATTERNS = [
 
   [/^(\d+) bars over (\d+) sessions · exchange local time$/, '$2 个交易日共 $1 根K线 · 交易所本地时间'],
   [/^(\d+) bars report none$/, '$1 根K线未提供'],
+  [/^SATELLITE ≤ (\d+)% OF INVESTED$/, '卫星仓 ≤ 投资部分的 $1%'],
+  [/^NON-REGISTERED OFFENCE ≤ \$([\d,]+)$/, '非注册进攻仓 ≤ $$1'],
+  [/^MONTHLY CORE BUY ≥ \$([\d,]+) NET$/, '每月核心 ETF 净买入 ≥ $$1'],
+  [/^\$([\d,]+) of \$([\d,]+) · \$([\d,-]+) left$/, '已用 $$1 / 上限 $$2 · 剩余 $$3'],
+  [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$4）'],
+  [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
+  [/^(\d+) MONTHS$/, '$1 个月'],
+
   [/^ordered (\d{2}:\d{2})$/, '$1 下单'],
   [/^ordered (.+) (\d{2}:\d{2}), executed next session$/, '$1 $2 下单，下一交易时段成交'],
 

@@ -100,3 +100,41 @@ def test_a_current_holdings_report_reports_no_differences(fixture_bytes, synthet
     r = json.load(open(BUILD_DIR / 'data.json'))['reconcile']
     assert r['stale'] is False and r['differences'] == []
     assert r['ledger_value'] == r['report_value']
+
+
+def test_satellite_bucket_and_deployment_rules(fixture_bytes, synthetic_market, monkeypatch):
+    """A structural non-US holding gets its own cap so the speculative rule stops flagging it."""
+    import json
+    import build_app
+    from settings import BUILD_DIR, CONFIG_PATH
+
+    cfg = json.load(open(CONFIG_PATH))
+    cfg['categories']['satellite'] = ['VOO']          # stand-in: the fixture only trades VOO
+    cfg['categories']['core'] = [s for s in cfg['categories']['core'] if s != 'VOO']
+    cfg['targets']['satellite'] = 0.03
+    cfg['rules']['max_satellite_pct_of_invested'] = 0.04
+    cfg['rules']['max_offense_cad_nonregistered'] = 5000
+    cfg['dca'] = dict(usd_ladder=['VOO'], usd_dip_ticker='VOO', usd_dip_pct=-0.02,
+                      cad_ticker='VOO', monthly_cad=1000)
+    cfg['satellite_exit'] = {'VOO': 0.5}
+    monkeypatch.setattr(build_app, 'CFG', cfg)
+    monkeypatch.setattr(build_app.engine, 'CFG', cfg)
+
+    store.commit(store.preview([fixture_bytes('activities_rrsp.csv')])['id'])
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+
+    voo = next(h for h in d['holdings'] if h['sym'] == 'VOO')
+    assert voo['cat'] == 'satellite'                  # reclassified out of the default bucket
+    assert 'satellite' in d['alloc']['now']
+
+    names = {r['name']: r for r in d['rules']}
+    sat = next(r for n, r in names.items() if n.startswith('SATELLITE'))
+    assert sat['ok'] is False                         # 100% of invested, well past the 4% cap
+    assert any('exit target' in i for i in sat['items'])
+    off = next(r for n, r in names.items() if n.startswith('NON-REGISTERED OFFENCE'))
+    assert off['ok'] is True                          # nothing speculative in the non-registered book
+
+    p = d['dca']
+    assert p['target'] == 'VOO' and p['unit_usd'] == 640.0
+    assert p['shares_now'] == int(p['usd_cash'] // 640.0)
