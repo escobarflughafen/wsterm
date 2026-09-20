@@ -401,8 +401,15 @@ def main():
         gain = val - inv
         if abs(float(val.iloc[-1])) < 1 and abs(float(gain.iloc[-1])) < 1:
             continue                      # never really held: nothing to compare
+        # The security on its own terms: total return in CAD, indexed to 100 at the first day, so two
+        # tickers can be compared without either one's position size getting in the way.
+        try:
+            adj = cal.adj_cad(key)
+            tr = [round(float(v), 3) for v in (adj / float(adj.iloc[0]) * 100)] if float(adj.iloc[0]) else None
+        except (FileNotFoundError, IndexError, ZeroDivisionError):
+            tr = None
         # Peak capital deployed: the denominator that means something for a closed position too.
-        compare[key] = dict(value=[r2(v) for v in val], gain=[r2(v) for v in gain],
+        compare[key] = dict(value=[r2(v) for v in val], gain=[r2(v) for v in gain], tr=tr,
                             peak_cost=r2(max(float(inv.max()), 0.0)),
                             held=bool(abs(float(q.iloc[-1])) > 1e-9))
 

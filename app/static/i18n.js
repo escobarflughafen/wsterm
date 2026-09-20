@@ -112,6 +112,12 @@ const ZH = {
   ':q  or  top-right EXIT VIM': ':q 或右上角 EXIT VIM',
 
   // CMP 多标的对比
+  'PORTFOLIO': '我的组合', 'TICKERS': '标的', 'MARKET': '市场', 'MARKET RETURN': '市场收益',
+  'MARKET IN RANGE': '区间市场收益', 'YOUR VALUE': '我的市值', 'YOUR GAIN IN RANGE': '我的区间盈亏',
+  'BEST IN RANGE': '区间最佳', 'WORST IN RANGE': '区间最差', 'SPREAD': '差距', 'best minus worst': '最佳减最差',
+  'compare securities · MARKET ignores your position size entirely': '对比标的本身 · 「市场」完全不看你的仓位大小',
+  'your money against the benchmarks': '你的资金与基准的对比',
+  'total return of the security in CAD, dividends reinvested · nothing here depends on what you own': '该证券以加元计的总收益（股息再投资）· 与你持有多少完全无关',
   'COMPARE': '对比', 'COMPARING': '正在对比', 'VALUE NOW': '当前市值', 'PEAK VALUE': '最高市值',
   'GAIN IN RANGE': '区间盈亏', 'GAIN ALL TIME': '累计盈亏', 'ON CAPITAL DEPLOYED': '占投入资金',
   'TICKERS': '标的', 'STATUS': '状态', 'HELD': '持有中', 'CLOSED': '已平仓', 'BOTH': '两者',

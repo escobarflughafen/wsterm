@@ -1,13 +1,13 @@
 'use strict';
 const SCREENS = [
   ['PORT', 'PORTFOLIO'], ['PERF', 'PERFORMANCE'], ['PNL', 'REALIZED P&L'], ['TRD', 'TRADES'],
-  ['ALOC', 'ALLOCATION'], ['CMP', 'COMPARE'], ['RULE', 'TO DO & RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
+  ['ALOC', 'ALLOCATION'], ['RULE', 'TO DO & RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
 ];
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', cmpSel: null, cmpLoading: false, cmpMode: 'BOTH', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', cmpSel: null, cmpLoading: false, cmpMode: 'MARKET', perfScope: 'PORTFOLIO', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -400,6 +400,11 @@ const SCREEN = {
   },
 
   PERF() {
+    const bar = panel('PERFORMANCE', state.perfScope === 'TICKERS'
+      ? 'compare securities · MARKET ignores your position size entirely'
+      : 'your money against the benchmarks',
+      seg(['PORTFOLIO', 'TICKERS'], state.perfScope, s => { state.perfScope = s; render(); }));
+    if (state.perfScope === 'TICKERS') return [bar, ...SCREEN.tickerCompare()];
     const sr = D.series, i0 = rangeStart(sr.dates, state.range);
     // ALL MONEY: every deposit, cash included. INVESTED: cash and cash ETFs excluded on both sides, so the
     // benchmark only gets money when you actually bought a risk asset.
@@ -505,7 +510,7 @@ const SCREEN = {
     // Each note is its own sentence with its own translation; joining them first meant tr() looked up
     // a pair that no dictionary has.
     const noteEls = notes.flatMap(n => [h('span', {}, n), ' ']);   // the space is a sibling, not part of the key
-    return [panel('PERFORMANCE', `${dates[0]} → ${dates[dates.length - 1]}`, ctl, statsEl,
+    return [bar, panel(acct === 'ALL' ? 'PORTFOLIO' : acct.toUpperCase(), `${dates[0]} → ${dates[dates.length - 1]}`, ctl, statsEl,
       h('div', { class: 'body' }, lineChart({ dates, series, yfmt, height: 340, zeroLine: state.mode !== 'VALUE' })),
       h('div', { class: 'body mut' }, ...noteEls))];
   },
@@ -614,7 +619,8 @@ const SCREEN = {
     ];
   },
 
-  CMP() {
+  // PERF · TICKERS: the securities themselves, and what they did for you. Reached from PERF, not the nav.
+  tickerCompare() {
     ensureCompare();
     if (!COMPARE) return [h('div', { class: 'skeleton' }, 'LOADING TICKER SERIES…')];
     const names = Object.keys(COMPARE);
@@ -630,15 +636,21 @@ const SCREEN = {
     const picked = names.filter(t => state.cmpSel.has(t));
     const colorOf = t => CMP_COLORS[picked.indexOf(t) % CMP_COLORS.length];
     // Two measures never share an axis: one chart each, same colours, same days.
-    const mk = (field) => picked.map(t => ({
-      name: t, short: t, color: colorOf(t),
-      values: COMPARE[t][field].slice(i0).map((v, i, a) => field === 'gain' ? v - a[0] : v),
-    }));
+    const mk = (field) => picked.map(t => {
+      const s = COMPARE[t][field];
+      if (!s) return { name: t, short: t, color: colorOf(t), values: win.map(() => null) };
+      const a = s.slice(i0);
+      return { name: t, short: t, color: colorOf(t),
+        values: field === 'tr' ? a.map(v => v / a[0] - 1)          // what a dollar in the security did
+          : field === 'gain' ? a.map(v => v - a[0]) : a };
+    });
     const rows = names.map(t => {
       const c = COMPARE[t], v = c.value.at(-1), g = c.gain.at(-1);
       const gv = c.gain.slice(i0), vv = c.value.slice(i0);
+      const tv = c.tr ? c.tr.slice(i0) : null;
       return { sym: t, value: v, gain: g, held: c.held,
         rangeGain: gv.at(-1) - gv[0], peak: Math.max(...vv),
+        mkt: tv && tv[0] ? tv.at(-1) / tv[0] - 1 : null,          // the security alone, over the range
         ret: c.peak_cost > 1 ? g / c.peak_cost : null, on: state.cmpSel.has(t) };
     });
     const toggle = t => {
@@ -648,7 +660,7 @@ const SCREEN = {
       msg(''); rerenderKeepScroll();
     };
     const ctl = [...seg(['1M', '3M', '6M', 'YTD', '1Y', 'ALL'], state.range, r => { state.range = r; render(); }),
-      ...seg(['BOTH', 'VALUE', 'GAIN'], state.cmpMode, m => { state.cmpMode = m; render(); })];
+      ...seg(['MARKET', 'VALUE', 'GAIN'], state.cmpMode, m => { state.cmpMode = m; render(); })];
     const chart = (title, sub, field, fmt) => panel(title, sub, null,
       h('div', { class: 'body' }, picked.length
         ? lineChart({ dates: win, series: mk(field), height: 320, zeroLine: field === 'gain', yfmt: fmt })
@@ -656,18 +668,27 @@ const SCREEN = {
     return [
       h('div', { class: 'stats' },
         stat('COMPARING', `${picked.length} / ${CMP_MAX}`, `${names.length} tickers with history`),
-        stat('VALUE NOW', money(rows.filter(r => r.on).reduce((a, r) => a + r.value, 0)), 'selected, CAD'),
-        stat('GAIN IN RANGE', signed(rows.filter(r => r.on).reduce((a, r) => a + r.rangeGain, 0)), `${win[0]} → ${win.at(-1)}`),
-        stat('GAIN ALL TIME', signed(rows.filter(r => r.on).reduce((a, r) => a + r.gain, 0)), 'selected, realised + unrealised')),
+        ...(state.cmpMode === 'MARKET'
+          ? (() => {
+            const on = rows.filter(r => r.on && r.mkt != null).sort((a, b) => b.mkt - a.mkt);
+            return [stat('BEST IN RANGE', on.length ? signedPct(on[0].mkt) : '—', on.length ? on[0].sym : null),
+              stat('WORST IN RANGE', on.length ? signedPct(on.at(-1).mkt) : '—', on.length ? on.at(-1).sym : null),
+              stat('SPREAD', on.length > 1 ? signedPP(on[0].mkt - on.at(-1).mkt, 1) : '—', 'best minus worst')];
+          })()
+          : [stat('VALUE NOW', money(rows.filter(r => r.on).reduce((a, r) => a + r.value, 0)), 'selected, CAD'),
+            stat('GAIN IN RANGE', signed(rows.filter(r => r.on).reduce((a, r) => a + r.rangeGain, 0)), `${win[0]} → ${win.at(-1)}`),
+            stat('GAIN ALL TIME', signed(rows.filter(r => r.on).reduce((a, r) => a + r.gain, 0)), 'selected, realised + unrealised')])),
       h('div', { class: 'row', style: 'grid-template-columns:1fr' },
-        state.cmpMode !== 'GAIN' ? chart('VALUE', 'what each position is worth, CAD', 'value', (v, full) => money(v, full ? 2 : 0)) : null,
-        state.cmpMode !== 'VALUE' ? chart('GAIN IN RANGE', 'value minus every dollar put in, rebased to 0 at the range start', 'gain', (v, full) => money(v, full ? 2 : 0)) : null),
+        state.cmpMode === 'MARKET' ? chart('MARKET RETURN', 'total return of the security in CAD, dividends reinvested · nothing here depends on what you own', 'tr', (v, full) => pct(v, full ? 2 : 0)) : null,
+        state.cmpMode === 'VALUE' ? chart('YOUR VALUE', 'what each position is worth, CAD', 'value', (v, full) => money(v, full ? 2 : 0)) : null,
+        state.cmpMode === 'GAIN' ? chart('YOUR GAIN IN RANGE', 'value minus every dollar put in, rebased to 0 at the range start', 'gain', (v, full) => money(v, full ? 2 : 0)) : null),
       panel('TICKERS', `tick up to ${CMP_MAX} · sorted by all-time gain`, null, table([
         { k: 'on', label: '', fmt: r => h('span', { class: r.on ? 'amb' : 'mut' }, r.on ? '☑' : '☐') },
         { k: 'sym', label: 'SYMBOL', l: true, fmt: r => h('span', {}, h('span', { class: r.on ? 'amb' : '', raw: true }, r.sym),
           r.on ? [' ', h('i', { class: 'swatch', style: `background:${colorOf(r.sym)}` })] : null) },
         { k: 'held', label: 'STATUS', l: true, fmt: r => h('span', { class: 'mut' }, r.held ? 'HELD' : 'CLOSED') },
-        { k: 'value', label: 'VALUE NOW', fmt: r => r.value > 0.5 ? money(r.value) : h('span', { class: 'mut' }, '—') },
+        { k: 'mkt', label: 'MARKET IN RANGE', fmt: r => signedPct(r.mkt) },
+        { k: 'value', label: 'VALUE NOW', sm: false, fmt: r => r.value > 0.5 ? money(r.value) : h('span', { class: 'mut' }, '—') },
         { k: 'peak', sm: false, label: 'PEAK VALUE', fmt: r => money(r.peak) },
         { k: 'rangeGain', label: 'GAIN IN RANGE', fmt: r => signed(r.rangeGain) },
         { k: 'ret', sm: false, label: 'ON CAPITAL DEPLOYED', fmt: r => signedPct(r.ret) },
@@ -1749,7 +1770,7 @@ function runCommand(raw) {
   if (!c) return;
   if (c === 'VIM') return setVimMode(true);
   if (c === ':Q' || c === 'VIM OFF' || c === 'NOVIM') return setVimMode(false);
-  const alias = { IMPORT: 'IMP', UPLOAD: 'IMP', PORTFOLIO: 'PORT', PNL: 'PNL', 'P&L': 'PNL', TRADES: 'TRD', ALLOC: 'ALOC', COMPARE: 'CMP', RULES: 'RULE', EVENTS: 'EVT', INCOME: 'INC', AUDIT: 'AUD', '?': 'HELP' };
+  const alias = { IMPORT: 'IMP', UPLOAD: 'IMP', PORTFOLIO: 'PORT', PNL: 'PNL', 'P&L': 'PNL', TRADES: 'TRD', ALLOC: 'ALOC', RULES: 'RULE', EVENTS: 'EVT', INCOME: 'INC', AUDIT: 'AUD', '?': 'HELP' };
   const k = alias[c] || c;
   if (SCREEN[k] && k !== 'SYM') { msg(''); return go(k); }
   if (c === 'LANG' || c === '中文' || c === 'ZH' || c === 'EN' || c === 'ENGLISH') { msg(''); return switchLang(c === 'LANG' ? null : c === 'EN' || c === 'ENGLISH' ? 'en' : 'zh'); }
@@ -1906,7 +1927,7 @@ pollStatus();
 load().catch(e => { $('#main').replaceChildren(h('div', { class: 'skeleton' }, `COULD NOT LOAD DATA (${e.message})`)); });
 function applyStaticText() {
   const narrow = matchMedia('(max-width: 760px)').matches;
-  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · CMP · RULE · EVT · INC · AUD · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG' : 'or a ticker (NVDA, T.TO) · HELP · LANG');
+  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · AUD · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG' : 'or a ticker (NVDA, T.TO) · HELP · LANG');
   $('#rebuild').textContent = tr('REBUILD');
   $('#rebuild').title = tr('Recompute from exports and cached prices, no network (REBUILD <GO>)');
   $('#fetch').title = tr('Fetch due market data, then rebuild (FETCH <GO>)');
