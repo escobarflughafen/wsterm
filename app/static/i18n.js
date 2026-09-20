@@ -111,6 +111,16 @@ const ZH = {
   'VIM <GO>  or  top-right VIM': 'VIM <GO> 或右上角 VIM',
   ':q  or  top-right EXIT VIM': ':q 或右上角 EXIT VIM',
 
+  // CMP 多标的对比
+  'COMPARE': '对比', 'COMPARING': '正在对比', 'VALUE NOW': '当前市值', 'PEAK VALUE': '最高市值',
+  'GAIN IN RANGE': '区间盈亏', 'GAIN ALL TIME': '累计盈亏', 'ON CAPITAL DEPLOYED': '占投入资金',
+  'TICKERS': '标的', 'STATUS': '状态', 'HELD': '持有中', 'CLOSED': '已平仓', 'BOTH': '两者',
+  'what each position is worth, CAD': '每个持仓的市值（加元）',
+  'value minus every dollar put in, rebased to 0 at the range start': '市值减去投入的每一分钱，以区间起点归零',
+  'selected, CAD': '已选标的，加元', 'selected, realised + unrealised': '已选标的，已实现 + 未实现',
+  'Tick a ticker below.': '在下方勾选标的。',
+  'LOADING TICKER SERIES…': '正在加载标的序列…', 'NO TICKER HISTORY YET': '尚无标的历史',
+
   // 配置与定投
   'satellite': '卫星仓', 'SATELLITE': '卫星仓',
   'SCHEDULED DEPLOYMENT': '定投计划', 'USD ladder · CAD monthly · no currency conversion either way': '美元阶梯 · 加元月供 · 两边都不换汇',
@@ -365,6 +375,10 @@ const ZH_PATTERNS = [
   [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$$4）'],
   [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
   [/^(\d+) MONTHS$/, '$1 个月'],
+  [/^(\d+) \/ (\d+)$/, '$1 / $2'], [/^(\d+) tickers with history$/, '$1 个标的有历史数据'],
+  [/^tick up to (\d+) · sorted by all-time gain$/, '最多勾选 $1 个 · 按累计盈亏排序'],
+  [/^Pick at most (\d+) tickers$/, '最多只能选 $1 个标的'],
+
   // 待办明细（服务端生成，含数字）
   [/^(\d{4}-\d{2}): \$([\d,-]+) of \$([\d,]+) net · \$([\d,]+) to go$/, '$1：净买入 $$$2 / 目标 $$$3 · 还差 $$$4'],
   [/^(\d{4}-\d{2}): \$([\d,-]+) of \$([\d,]+) net$/, '$1：净买入 $$$2 / 目标 $$$3'],

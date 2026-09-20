@@ -378,6 +378,34 @@ def main():
          f"{month}: " + (', '.join(f'{a} {c[month]}' for a, c in sorted(per_acct.items())) or 'no registered trades'),
          over + recent[-9:])
 
+    # ---------- per-ticker series, for comparing several at once ----------
+    # Two measures, never on one axis: value is what the position is worth, gain is value minus every
+    # dollar put into it. A closed position keeps its realised gain and flat-lines, which is the point.
+    spend = collections.defaultdict(list)
+    for a in acts:
+        t = a['activity_type']
+        if t not in ('Trade', 'InternalSecurityTransfer') or not a['symbol'] or is_option(a['symbol']):
+            continue
+        key = engine.position_key(a, tmap)[1]
+        cad = to_cad(float(a['net_cash_amount'] or 0), a['currency'], a['effective_date'])
+        # A trade's net is cash moving the other way, so money in is -net. A transfer carries its own
+        # stated book value with the shares, and the ledger adds it as given; without this the capital
+        # stays behind when the shares leave and the position looks like a loss for the whole gap.
+        spend[key].append((pd.Timestamp(a['effective_date']), cad if t == 'InternalSecurityTransfer' else -cad))
+    compare = {}
+    for key, q in base['qty'].items():
+        if key not in spend:
+            continue
+        val = q * cal.price_cad(key)
+        inv = cal.cumulative(spend[key])
+        gain = val - inv
+        if abs(float(val.iloc[-1])) < 1 and abs(float(gain.iloc[-1])) < 1:
+            continue                      # never really held: nothing to compare
+        # Peak capital deployed: the denominator that means something for a closed position too.
+        compare[key] = dict(value=[r2(v) for v in val], gain=[r2(v) for v in gain],
+                            peak_cost=r2(max(float(inv.max()), 0.0)),
+                            held=bool(abs(float(q.iloc[-1])) > 1e-9))
+
     # ---------- scheduled deployment ----------
     # USD cash is spent in USD and CAD in CAD: no conversion, so no 1.5% FX drag on either side.
     # The ladder buys the steadier fund by default and the more volatile one only after a drop.
@@ -507,6 +535,7 @@ def main():
         rules=rules,
         income=[dict(month=m, **{k: r2(v) for k, v in d.items()}) for m, d in sorted(income.items())],
         contributions=contributions,
+        compare=compare,
         dca=dca,
         todos=todos,
         options=open_options,
@@ -519,6 +548,9 @@ def main():
     decisions = data['audit'].pop('decisions')
     with open(os.path.join(APP, 'audit_decisions.json'), 'w') as f:
         json.dump(decisions, f, separators=(',', ':'), allow_nan=False)
+    # Same reasoning for the per-ticker series: 97 tickers of daily value and gain, read by one screen.
+    with open(os.path.join(APP, 'compare.json'), 'w') as f:
+        json.dump(data.pop('compare'), f, separators=(',', ':'), allow_nan=False)
     with open(os.path.join(APP, 'data.json'), 'w') as f:
         json.dump(data, f, separators=(',', ':'), allow_nan=False)  # NaN is not JSON: fail here, not in the browser
     s = data['summary']

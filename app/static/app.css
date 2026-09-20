@@ -259,3 +259,4 @@ button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focu
 .rule.todo .st { min-width: 74px; }
 .rule.todo.done .nm { color: var(--muted); text-decoration: line-through; }
 .rule .spec { font: 9px var(--mono); letter-spacing: .04em; opacity: .65; margin-top: 2px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }

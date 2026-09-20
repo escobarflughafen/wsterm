@@ -169,3 +169,39 @@ def test_rules_carry_my_own_wording_and_a_monthly_todo(fixture_bytes, synthetic_
     assert todos['core_buy']['amount'] > 0             # how much is still owed, not just that it failed
     assert 'of $1,000 net' in todos['core_buy']['detail']
     assert todos['trade_budget']['done'] is True
+
+
+def test_compare_series_survive_a_transfer(fixture_bytes, synthetic_market):
+    """Shares moving between accounts carry their book value with them; the capital must move too,
+    or the position reads as a total loss for as long as it is away."""
+    import json
+    import build_app
+    from settings import BUILD_DIR
+
+    acts = [
+        dict(effective_date='2026-01-05', effective_time='09:00:00', settlement_date='', account_id='A1',
+             account_type='TFSA', activity_type='MoneyMovement', activity_sub_type='EFT', description='Deposit',
+             direction='', symbol='', **{'underlying symbol': ''}, name='', currency='USD', quantity='',
+             unit_price='', commission='', net_cash_amount='2000'),
+        dict(effective_date='2026-01-07', effective_time='10:00:00', settlement_date='', account_id='A1',
+             account_type='TFSA', activity_type='Trade', activity_sub_type='BUY',
+             description='VOO - Vanguard: Bought 2.0000 shares', direction='LONG', symbol='VOO',
+             **{'underlying symbol': 'VOO'}, name='Vanguard', currency='USD', quantity='2', unit_price='505',
+             commission='0', net_cash_amount='-1010'),
+        dict(effective_date='2026-02-02', effective_time='10:00:00', settlement_date='', account_id='A1',
+             account_type='TFSA', activity_type='InternalSecurityTransfer', activity_sub_type='',
+             description='VOO transferred out', direction='LONG', symbol='VOO', **{'underlying symbol': 'VOO'},
+             name='Vanguard', currency='USD', quantity='-2', unit_price='', commission='',
+             net_cash_amount='-1100'),
+    ]
+    import csv
+    path = BUILD_DIR.parent / 'transfer_acts.csv'
+    with open(path, 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(acts[0])); w.writeheader(); w.writerows(acts)
+    store.commit(store.preview([('activities.csv', path.read_bytes())])['id'])
+    build_app.main()
+    c = json.load(open(BUILD_DIR / 'compare.json'))['VOO']
+
+    assert c['held'] is False and c['value'][-1] == 0
+    assert min(c['gain']) > -200      # not the full -1,100 the shares were worth when they left
+    assert c['peak_cost'] > 0

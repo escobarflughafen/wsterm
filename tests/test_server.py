@@ -165,3 +165,12 @@ def test_upload_size_limit(client, monkeypatch):
     monkeypatch.setattr(server, 'MAX_UPLOAD_MB', 0.0001)
     r = client.post('/api/import/preview', auth=AUTH, headers=H, files=[('files', ('big.csv', b'x' * 1000))])
     assert r.status_code == 413
+
+
+def test_compare_route_serves_per_ticker_series(client):
+    from settings import BUILD_DIR
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    (BUILD_DIR / 'compare.json').write_text('{"VOO":{"value":[1,2],"gain":[0,1],"peak_cost":10,"held":true}}')
+    r = client.get('/compare.json', auth=AUTH)
+    assert r.status_code == 200 and r.json()['VOO']['peak_cost'] == 10
+    assert client.get('/compare.json').status_code == 401

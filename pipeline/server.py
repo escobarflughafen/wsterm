@@ -180,6 +180,15 @@ def audit_decisions():
     return FileResponse(path, media_type='application/json')
 
 
+@app.get('/compare.json')
+def compare_json():
+    """Split out of data.json: per-ticker value and gain series, read only by the compare screen."""
+    path = BUILD_DIR / 'compare.json'
+    if not path.exists():
+        return JSONResponse({}, status_code=404)
+    return FileResponse(path, media_type='application/json')
+
+
 @app.get('/prices/{ticker}.csv')
 def price_csv(ticker: str):
     path = PUBLIC_MARKET_DIR / 'prices' / f'{ticker}.csv'
