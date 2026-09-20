@@ -24,7 +24,7 @@ const ZH = {
   'Imported · fetching prices for new symbols…': '已导入 · 正在抓取新代码的价格…', 'Choose .csv files': '请选择 .csv 文件',
   'No valid files in upload': '上传中没有有效文件', 'Open DATA screen': '打开数据页',
   'VIM': 'VIM', 'EXIT VIM': '退出 VIM', 'Enable Vim keyboard navigation': '启用 Vim 键盘导航', 'Exit Vim mode (:q)': '退出 Vim 模式（:q）',
-  'GUEST · EPHEMERAL': '访客 · 临时', 'END SESSION': '结束会话', 'Uploaded portfolio data is erased when this guest container stops; only public market data persists.': '访客容器停止后，上传的投资组合数据将被清除；仅保留公开市场数据。',
+  'GUEST': '访客', 'END SESSION': '结束会话', 'Uploaded portfolio data is erased when this guest container stops; only public market data persists.': '访客容器停止后，上传的投资组合数据将被清除；仅保留公开市场数据。',
   'One browser owns this guest workspace. END SESSION erases its portfolio data; only public market data persists.': '此访客工作区仅由一个浏览器会话占用。结束会话会清除投资组合数据；仅保留公开市场数据。',
   'End this guest session and permanently erase all uploaded portfolio data? Public market prices will remain cached.': '结束访客会话并永久清除所有上传的投资组合数据？公开市场价格缓存将保留。',
   'VIM MODE · h/j/k/l controls · Enter activates · gg/G edges · i/: command': 'VIM 模式 · h/j/k/l 移动控件 · Enter 激活 · gg/G 到顶/底 · i/: 输入命令', 'VIM MODE OFF': 'VIM 模式已关闭',
