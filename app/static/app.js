@@ -504,7 +504,7 @@ const SCREEN = {
       else if (state.mode === 'RETURN') notes.push('Time-weighted returns rebased to 0% at the range start; hover shows what each rate is worth in CAD.');
       else notes.push('Benchmark lines replay every deposit and withdrawal into that ETF on the same day (dividends reinvested).');
       notes.push(invested
-        ? 'Cash and cash ETFs (CCAD, TCSH, CBIL) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality.'
+        ? `Cash and cash ETFs (${(D.cfg.cash_symbols || []).join(', ')}) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality.`
         : 'ALL MONEY includes what you parked in cash ETFs, which is why a benchmark can lead. Switch to INVESTED for a like-for-like comparison.');
     }
     // Each note is its own sentence with its own translation; joining them first meant tr() looked up
@@ -995,7 +995,7 @@ const SCREEN = {
       stat('DIFFERENCE', R ? signed(R.summary.simulated - R.summary.actual) : '—', R ? signedPct((R.summary.simulated - R.summary.actual) / R.summary.actual, 2) : null),
       stat('REALIZED P&L', R ? h('span', {}, money(R.summary.realized_actual), h('span', { class: 'mut' }, ' → '), money(R.summary.realized_sim)) : '—', R && R.summary.clipped ? `${R.summary.clipped} later sells/transfers shrunk` : 'CAD'));
     const ctl = [
-      ...seg(['CASH', 'CASH ETF', 'XEQT', 'VOO'], state.simRedirect, m => { state.simRedirect = m; state.simResult = null; render(); scheduleSim(); }),
+      ...seg(Object.keys(redirectMap()), state.simRedirect, m => { state.simRedirect = m; state.simResult = null; render(); scheduleSim(); }),
     ];
     const pickCtl = [
       h('select', { 'aria-label': 'Account', onchange: e => { state.simAcct = e.target.value; render(); } },
@@ -1434,7 +1434,7 @@ function scheduleSim() {
   simTimer = setTimeout(async () => {
     const seq = ++simSeq;
     try {
-      const redirect = { XEQT: 'XEQT.TO', VOO: 'VOO', 'CASH ETF': 'CCAD.TO' }[state.simRedirect] || null;
+      const redirect = state.simRedirect === 'CASH' ? null : redirectMap()[state.simRedirect] || null;
       const { data: j } = await api('/api/simulate', { method: 'POST', json: { exclude: [...state.simSel], redirect } });
       if (!j.ok) throw new Error(j.log);
       if (seq !== simSeq) return;
@@ -1543,8 +1543,19 @@ function contributionsPanel() {
       ], C.tickers, { sortKey: 'cad' })));
 }
 
+// Where freed or new money can go in a simulation: this install's cash ETF and benchmarks, never a
+// ticker written into the code. `cash` and `none` are behaviours, so they keep fixed labels.
+const short = t => (t || '').replace(/\.(TO|NE)$/, '');
+function redirectMap() {
+  const c = (D && D.cfg) || { benchmarks: [] };
+  const out = { CASH: 'cash' };
+  if (c.cash_etf) out['CASH ETF'] = c.cash_etf;
+  for (const b of c.benchmarks) out[short(b)] = b;
+  return out;
+}
+
 // ---------- freeze (stop trading) simulation ----------
-const FRZ_DEPOSITS = { CASH: 'cash', 'CASH ETF': 'CCAD.TO', XEQT: 'XEQT.TO', VOO: 'VOO', NONE: 'none' };
+const frzDeposits = () => ({ ...redirectMap(), NONE: 'none' });
 let frzTimer, frzSeq = 0;
 function ensureFreeze() {
   const F = state.frz;
@@ -1564,7 +1575,7 @@ function runFreeze(delay = 250) {
   frzTimer = setTimeout(async () => {
     const F = state.frz, seq = ++frzSeq;
     F.busy = true;
-    const body = { deposits: FRZ_DEPOSITS[F.deposits], ...(F.trade ? { trade: F.trade } : { date: F.date }) };
+    const body = { deposits: frzDeposits()[F.deposits], ...(F.trade ? { trade: F.trade } : { date: F.date }) };
     const { data } = await api('/api/freeze', { method: 'POST', json: body });
     if (seq !== frzSeq) return;
     F.busy = false;
@@ -1579,7 +1590,10 @@ function freezeView() {
   const F = state.frz, R = F.result, S = F.sweep;
   const pp = v => v == null ? '—' : `${(v * 100).toFixed(2)}pp`;
   const signedPP = v => signed(v, x => `${(x * 100).toFixed(2)}pp`, 0.00005);
-  const depNote = { CASH: 'deposits after the freeze arrive and sit as cash', 'CASH ETF': 'deposits after the freeze buy CCAD, the cash ETF you actually park money in', XEQT: 'deposits after the freeze buy XEQT the same day', VOO: 'deposits after the freeze buy VOO the same day', NONE: 'deposits after the freeze are ignored: compare returns only' }[F.deposits];
+  const depNote = F.deposits === 'CASH' ? 'deposits after the freeze arrive and sit as cash'
+    : F.deposits === 'NONE' ? 'deposits after the freeze are ignored: compare returns only'
+    : F.deposits === 'CASH ETF' ? `deposits after the freeze buy ${short(D.cfg.cash_etf)}, the cash ETF you park money in`
+    : `deposits after the freeze buy ${F.deposits} the same day`;
   const first = D.series.dates[0], last = D.price_date;
   const dateInput = h('input', { type: 'date', min: first, max: last, value: F.date || '', 'aria-label': 'Freeze date', class: 'dateinput',
     onchange: e => { if (e.target.value) freezeAtDate(e.target.value); } });
@@ -1589,7 +1603,7 @@ function freezeView() {
       dateInput, ...quick,
       F.trade ? h('button', { 'aria-pressed': 'true', onclick: () => freezeAtDate(F.date) }, 'TRADE ✕') : null,
     ], h('div', { class: 'body freeze-controls' },
-      h('span', { class: 'mut' }, 'MONEY ADDED AFTER:'), ...seg(Object.keys(FRZ_DEPOSITS), F.deposits, m => { F.deposits = m; runFreeze(0); render(); }),
+      h('span', { class: 'mut' }, 'MONEY ADDED AFTER:'), ...seg(Object.keys(frzDeposits()), F.deposits, m => { F.deposits = m; runFreeze(0); render(); }),
       h('span', { class: 'mut freeze-note' }, depNote))),
   ];
   if (F.err && !R) { out.push(h('div', { class: 'skeleton' }, F.err)); return out; }

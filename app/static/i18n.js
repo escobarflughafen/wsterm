@@ -381,6 +381,10 @@ const ZH_PATTERNS = [
   [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$$4）'],
   [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
   [/^(\d+) MONTHS$/, '$1 个月'],
+  [/^Cash and cash ETFs \((.+)\) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality\.$/, '双方均剔除现金及现金 ETF（$1）：只有在你买入风险资产时基准才获得资金，股息也像现实中一样流出。'],
+  [/^deposits after the freeze buy (.+), the cash ETF you park money in$/, '冻结后的存款买入 $1（你用来存放现金的现金 ETF）'],
+  [/^deposits after the freeze buy (.+) the same day$/, '冻结后的存款当天买入 $1'],
+
   [/^(\d+) \/ (\d+)$/, '$1 / $2'], [/^(\d+) tickers with history$/, '$1 个标的有历史数据'],
   [/^tick up to (\d+) · sorted by all-time gain$/, '最多勾选 $1 个 · 按累计盈亏排序'],
   [/^Pick at most (\d+) tickers$/, '最多只能选 $1 个标的'],

@@ -317,9 +317,9 @@ def main():
     spec_pct = alloc['speculative'] / invested if invested else 0
     rule('speculative', f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],
          f'Now {spec_pct:.1%}', [f"{x['acct']} {x['sym']} ${x['mv_cad']:,.0f}" for x in rows if x['cat'] == 'speculative'])
-    # A satellite is a deliberate structural bet -- currently KWEB, the only non-US, non-Canada holding
-    # against a 71% US book. It gets its own cap so the speculative rule stops flagging it, and the cap is
-    # set at the trim the user decided on rather than at today's size.
+    # A satellite is a deliberate structural bet rather than a punt: something held to offset a
+    # concentration the rest of the book has. It gets its own cap so the speculative rule stops flagging
+    # it, and the cap belongs at the size that was decided on, not at today's.
     sat_cap = R.get('max_satellite_pct_of_invested')
     if sat_cap:
         sat_pct = alloc.get('satellite', 0.0) / invested if invested else 0
@@ -522,6 +522,8 @@ def main():
         reconcile=reconcile,
         built=dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
         price_date=series['dates'][-1], fx=fx_now,
+        cfg=dict(cash_etf=engine.CASH_ETF, benchmarks=list(CFG['benchmarks']),
+                 cash_symbols=list(CFG['categories'].get('cash', []))),
         summary=dict(total=r2(total_now), contrib=r2(contrib_now), gain=r2(total_now - contrib_now),
                      unreal=r2(sum(to_cad(x['upl'] or 0, x['cur']) for x in rows)),
                      realized=r2(sum(p['realized_cad'] for p in positions)),

@@ -9,7 +9,7 @@ from prices import history, ticker_map, fx_usdcad
 
 CFG = json.load(open(CONFIG_PATH))
 CAD_SUFFIXES = ('.TO', '.NE', '-CAD')
-CASH_ETF = CFG.get('cash_etf', 'CCAD.TO')
+CASH_ETF = CFG.get('cash_etf') or ''   # whichever cash ETF this install parks money in; never assumed
 
 
 def is_option(symbol):
