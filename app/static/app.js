@@ -259,7 +259,7 @@ const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT
 function fmtDate(d, long) {
   const [y, mo, da] = d.split('-');
   if (LANG === 'zh') return long ? `${y.slice(2)}年${+mo}月` : `${+mo}月${+da}日`;
-  return long ? `${MON[+mo - 1]} ${y.slice(2)}` : `${+da} ${MON[+mo - 1]}`;
+  return long ? `${MON[+mo - 1]} ’${y.slice(2)}` : `${+da} ${MON[+mo - 1]}`;  // SEP ’26, not SEP 26
 }
 let resizeHooks = [];
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => resizeHooks.forEach(f => f()), 120); });
