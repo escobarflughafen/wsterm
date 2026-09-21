@@ -3,7 +3,7 @@ import collections, hashlib, json, os
 
 import pandas as pd
 
-from ledger import build_positions
+from ledger import build_positions, cash_leg
 from settings import CONFIG_PATH
 from prices import history, ticker_map, fx_usdcad
 
@@ -20,7 +20,7 @@ def trade_id(a):
     # Hash what the broker booked, not the resolved execution date, so ids stay stable across that fix
     # and keep matching anything the user already selected in a simulation.
     raw = '|'.join([a.get('booked_date') or a['effective_date'], a.get('order_time') or a['effective_time']]
-                   + [a[k] for k in ('account_id', 'symbol', 'quantity', 'net_cash_amount')])
+                   + [a[k] for k in ('account_id', 'symbol', 'quantity')] + [a.get('booked_net_cash_amount') or a['net_cash_amount']])
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
@@ -133,8 +133,10 @@ def replay(acts, cal):
             # export states a book value here; using it leaves the difference with nowhere to go, and
             # the return series books it as a gain on the transfer day.
             flow_events[a['account_type']].append((d, transfer_value(a, cal, d, net, cur)))
-        elif net:
-            cash_events[(a['account_type'], cur)].append((d, net))
+        else:
+            ccur, cash = cash_leg(a)
+            if cash:
+                cash_events[(a['account_type'], ccur)].append((d, cash))
         if t == 'MoneyMovement':
             flow_events[a['account_type']].append((d, cal.to_cad(net, cur, d)))
 
@@ -257,7 +259,8 @@ def apply_exclusions(acts, exclude, tmap):
                 clipped.append((a['effective_date'], a['account_type'], a['symbol'], -q, 0.0))
                 continue
             scale = avail / -q
-            a = dict(a, quantity=str(-avail), net_cash_amount=str(float(a['net_cash_amount'] or 0) * scale))
+            a = dict(a, quantity=str(-avail), net_cash_amount=str(float(a['net_cash_amount'] or 0) * scale),
+                     cash_amount=str(cash_leg(a)[1] * scale))
             clipped.append((a['effective_date'], a['account_type'], a['symbol'], -q, avail))
             q = -avail
         held[key] += q
@@ -275,9 +278,9 @@ def redirect_cash(actual, sim, ticker, cal, acts_actual, acts_sim):
     def cash_by_currency(acts):
         events = collections.defaultdict(list)
         for a in acts:
-            net = float(a['net_cash_amount'] or 0)
+            cur, net = cash_leg(a)
             if net and a['activity_type'] != 'InternalSecurityTransfer':
-                events[a['currency']].append((pd.Timestamp(a['effective_date']), net))
+                events[cur].append((pd.Timestamp(a['effective_date']), net))
         return {cur: cal.cumulative(ev) for cur, ev in events.items()}
 
     before, after = cash_by_currency(acts_actual), cash_by_currency(acts_sim)

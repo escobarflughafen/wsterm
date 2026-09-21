@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 import engine
+from ledger import cash_leg
 from engine import Calendar, is_option, position_key, replay, twr, trade_id
 
 HORIZONS = [('1W', 7), ('1M', 30), ('3M', 91), ('6M', 182), ('1Y', 365)]
@@ -76,19 +77,22 @@ class Context:
             raise ValueError('Freeze point is after the last price date')
         qty, cash, options = collections.defaultdict(float), collections.defaultdict(float), collections.defaultdict(float)
         for a in cutoff:
-            t, net, cur = a['activity_type'], float(a['net_cash_amount'] or 0), a['currency']
+            t = a['activity_type']
+            ccur, cnet = cash_leg(a)
             if t in ('Trade', 'InternalSecurityTransfer'):
                 key = position_key(a, self.cal.tmap)
                 if is_option(a['symbol']):
                     options[key] += float(a['quantity'])
-                    options[(key, 'cost')] += -net
+                    options[(key, 'cost', ccur)] += -cnet
                 else:
                     qty[key[1]] += float(a['quantity'])
-            if t != 'InternalSecurityTransfer' and net:
-                cash[cur] += net
-        open_option_cost = sum(v for k, v in options.items() if isinstance(k[-1], str) and k[-1] == 'cost'
-                               and options[k[0]] > 1e-9)
-        cash['USD'] += open_option_cost  # options are USD; closed at cost
+            if t != 'InternalSecurityTransfer' and cnet:
+                cash[ccur] += cnet
+        open_option_cost = 0.0
+        for k, v in list(options.items()):
+            if len(k) == 3 and k[1] == 'cost' and options[k[0]] > 1e-9:
+                cash[k[2]] += v  # open options closed at cost, back into the cash that paid for them
+                open_option_cost += v
         positions = {t: q for t, q in qty.items() if abs(q) > 1e-9 and t in self.px}
         kept = sum(a['activity_type'] == 'Trade' for a in cutoff)
         return fi, label, positions, dict(cash), open_option_cost, kept

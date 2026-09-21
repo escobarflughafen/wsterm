@@ -8,6 +8,7 @@ import csv, collections, re, sys
 import store
 
 EXECUTED_AT = re.compile(r'executed at (\d{4}-\d{2}-\d{2})')
+FX_RATE = re.compile(r'FX Rate: ([\d.]+)')
 
 
 def load_activities(path=None):
@@ -31,7 +32,43 @@ def load_activities(path=None):
         # An order queued before its session has no fill time at all; keep it ahead of that day's live
         # orders rather than pretending 23:13 happened after 09:32.
         r['effective_time'] = r['order_time'] if executed == booked else '00:00:00'
+        r['booked_currency'], r['booked_net_cash_amount'] = r['currency'], r['net_cash_amount']
+        r['cash_currency'], r['cash_amount'] = r['currency'], r['net_cash_amount']
+        fx = FX_RATE.search(r.get('description') or '')
+        if r['activity_type'] == 'Trade' and r['currency'] == 'CAD' and fx:
+            to_usd(r, float(fx.group(1)))
+    expire_options(rows)
     return sorted(rows, key=lambda x: (x['effective_date'], x['effective_time'], x['booked_date'], x['order_time']))
+
+
+def to_usd(r, rate):
+    """A US-listed trade paid from CAD: the shares are USD, the cash that paid for them was CAD.
+
+    Wealthsimple books a buy funded by an automatic conversion in CAD ("FX Rate: 1.4033" in the description) but
+    the later sell in USD. Positions are keyed by currency, so left as booked the CAD buys are never closed: a
+    round trip leaves phantom shares behind and the USD sells realise P&L against no cost. The security side
+    (currency, unit_price, net_cash_amount) is restated in USD at the broker's rate; the cash leg stays as booked,
+    because the booked currency is the balance the money actually came from (every US trade carries an FX rate,
+    including ones paid from USD cash, so the rate alone says nothing about where the money was).
+    """
+    r['currency'] = 'USD'
+    r['unit_price'] = repr(float(r['unit_price']) / rate)
+    r['net_cash_amount'] = repr(round(float(r['net_cash_amount'] or 0) / rate, 2))
+
+
+def expire_options(rows):
+    """An expired contract is a sale at zero: close it in the currency it was bought in, so the premium is realised."""
+    currency = {(r['account_type'], r['symbol']): r['currency'] for r in rows if r['activity_type'] == 'Trade'}
+    for r in rows:
+        if r['activity_type'] == 'OptionExpiry':
+            cur = currency.get((r['account_type'], r['symbol']), 'USD')
+            r.update(activity_type='Trade', activity_sub_type='EXPIRY', currency=cur, unit_price='0',
+                     net_cash_amount='0', cash_currency=cur, cash_amount='0', booked_activity_type='OptionExpiry')
+
+
+def cash_leg(a):
+    """(currency, amount) of the cash an activity actually moved; rows not from load_activities fall back to as booked."""
+    return a.get('cash_currency') or a['currency'], float(a.get('cash_amount', a['net_cash_amount']) or 0)
 
 
 def holding_rows(path=None):
