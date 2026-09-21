@@ -9,6 +9,11 @@ from prices import history, ticker_map, fx_usdcad
 
 CFG = json.load(open(CONFIG_PATH))
 CAD_SUFFIXES = ('.TO', '.NE', '-CAD')
+
+
+def quoted_in_cad(ticker):
+    """Whether Yahoo quotes this ticker in CAD. The USD class of a TSX listing (UBIL-U.TO) trades in USD."""
+    return ticker.endswith(CAD_SUFFIXES) and not ticker.endswith('-U.TO')
 CASH_ETF = CFG.get('cash_etf') or ''   # whichever cash ETF this install parks money in; never assumed
 
 
@@ -65,13 +70,13 @@ class Calendar:
         if ticker not in self._px:
             px = as_traded_close(ticker)
             px = px.reindex(px.index.union(self.days)).ffill().reindex(self.days).fillna(0.0)
-            self._px[ticker] = px if ticker.endswith(CAD_SUFFIXES) else px * self.fx
+            self._px[ticker] = px if quoted_in_cad(ticker) else px * self.fx
         return self._px[ticker]
 
     def adj_cad(self, ticker):
         df = history(ticker)
         adj = df['Adj Close'].reindex(df.index.union(self.days)).ffill().reindex(self.days).bfill()
-        return adj if ticker.endswith(CAD_SUFFIXES) else adj * self.fx
+        return adj if quoted_in_cad(ticker) else adj * self.fx
 
 
 def option_book(events):

@@ -43,6 +43,13 @@ def test_ticker_map_handles_symbols_that_already_carry_an_exchange():
     assert m.yahoo_ticker('NVDA', 'USD', 'NVDA - NVIDIA Corp', 'TFSA') == 'NVDA'
     assert m.yahoo_ticker('BRK.B', 'USD', 'BRK.B - Berkshire Hathaway', 'TFSA') == 'BRK-B'
     assert m.yahoo_ticker('UBIL.U', 'USD', 'UBIL.U - Global X US 0-3 Month T-Bill ETF', 'TFSA') == 'UBIL-U.TO'
+
+
+def test_a_usd_class_tsx_listing_is_quoted_in_usd():
+    import engine
+    assert engine.quoted_in_cad('XEQT.TO') and engine.quoted_in_cad('GOOG.NE') and engine.quoted_in_cad('BTC-CAD')
+    assert not engine.quoted_in_cad('UBIL-U.TO')   # listed in Toronto, priced in USD
+    assert not engine.quoted_in_cad('VOO')
     assert m.yahoo_ticker('BTC', 'CAD', 'Purchase of BTC', 'Crypto') == 'BTC-CAD'
     acts = [dict(activity_type='Trade', symbol='RY.TO', currency='CAD', description='RY.TO - Royal Bank of Canada', account_type='Non-registered'),
             dict(activity_type='Trade', symbol='XEQT', currency='CAD', description='XEQT - iShares Core Equity ETF Portfolio', account_type='TFSA')]

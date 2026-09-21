@@ -16,7 +16,6 @@ import engine
 
 APP = str(BUILD_DIR)
 CFG = engine.CFG
-CAD_SUFFIXES = engine.CAD_SUFFIXES
 is_option = engine.is_option
 
 
@@ -200,7 +199,7 @@ def main():
             closes = df['Close'].dropna()  # today's row can exist before the session has a close
             now = float(closes.iloc[-1]) * factor if len(closes) else None  # today's price in trade-date share units
             if now is not None:
-                if cur == 'CAD' and not t.endswith(CAD_SUFFIXES):
+                if cur == 'CAD' and not engine.quoted_in_cad(t):
                     now *= fx_now
                 edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
                 if q < 0:
