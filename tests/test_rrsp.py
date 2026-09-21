@@ -140,6 +140,32 @@ def test_satellite_bucket_and_deployment_rules(fixture_bytes, synthetic_market, 
     assert p['shares_now'] == int(p['usd_cash'] // 640.0)
 
 
+def test_single_stock_cap_counts_a_ticker_across_accounts(fixture_bytes, synthetic_market, monkeypatch):
+    """One company in two accounts is one exposure: each slice can pass while the total breaks the cap."""
+    import json
+    import build_app
+    from settings import BUILD_DIR, CONFIG_PATH
+
+    cfg = json.load(open(CONFIG_PATH))
+    cfg['categories']['core'] = [s for s in cfg['categories']['core'] if s != 'VOO']   # VOO stands in for a stock
+    monkeypatch.setattr(build_app, 'CFG', cfg)
+    monkeypatch.setattr(build_app.engine, 'CFG', cfg)
+
+    store.commit(store.preview([fixture_bytes('activities_jan.csv'), fixture_bytes('activities_rrsp.csv')])['id'])
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+    slices = [h['weight'] for h in d['holdings'] if h['sym'] == 'VOO']
+    assert len(slices) == 2
+
+    cfg['rules']['max_single_stock_pct'] = (max(slices) + sum(slices)) / 2   # above either slice, below the sum
+    build_app.main()
+    d = json.load(open(BUILD_DIR / 'data.json'))
+    rule = next(r for r in d['rules'] if r['id'] == 'single_stock')
+    assert rule['ok'] is False
+    assert len(rule['items']) == 1 and rule['items'][0].startswith('VOO ')
+    assert 'TFSA' in rule['items'][0] and 'RRSP' in rule['items'][0]
+
+
 def test_rules_carry_my_own_wording_and_a_monthly_todo(fixture_bytes, synthetic_market, monkeypatch):
     """A rule renamed in config keeps its mechanical spec beside it, and the to-do list is actionable."""
     import json
