@@ -41,6 +41,8 @@ def test_ticker_map_handles_symbols_that_already_carry_an_exchange():
     assert m.yahoo_ticker('RY.TO', 'CAD', 'RY.TO - Royal Bank of Canada: Bought', 'Non-registered') == 'RY.TO'
     assert m.yahoo_ticker('GOOG', 'CAD', 'GOOG - Alphabet CDR (CAD Hedged)', 'TFSA') == 'GOOG.NE'
     assert m.yahoo_ticker('NVDA', 'USD', 'NVDA - NVIDIA Corp', 'TFSA') == 'NVDA'
+    assert m.yahoo_ticker('BRK.B', 'USD', 'BRK.B - Berkshire Hathaway', 'TFSA') == 'BRK-B'
+    assert m.yahoo_ticker('UBIL.U', 'USD', 'UBIL.U - Global X US 0-3 Month T-Bill ETF', 'TFSA') == 'UBIL-U.TO'
     assert m.yahoo_ticker('BTC', 'CAD', 'Purchase of BTC', 'Crypto') == 'BTC-CAD'
     acts = [dict(activity_type='Trade', symbol='RY.TO', currency='CAD', description='RY.TO - Royal Bank of Canada', account_type='Non-registered'),
             dict(activity_type='Trade', symbol='XEQT', currency='CAD', description='XEQT - iShares Core Equity ETF Portfolio', account_type='TFSA')]

@@ -79,6 +79,8 @@ def yahoo_ticker(symbol, currency, description, account):
         return f'{symbol}-CAD'
     if len(symbol) > 10:  # OCC option symbol; Yahoo drops expired contracts
         return None
+    if currency == 'USD' and symbol.upper().endswith('.U'):
+        return symbol[:-2] + '-U' + TSX_SUFFIX  # USD class of a TSX listing (UBIL.U -> UBIL-U.TO)
     if currency == 'USD':
         return symbol.replace('.', '-')
     if symbol.upper().endswith(EXCHANGE_SUFFIXES):
