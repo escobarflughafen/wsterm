@@ -15,7 +15,7 @@ import engine, freeze, jobs, market_data, prices, store
 from ledger import load_activities
 from settings import (ALLOW_NO_AUTH, APP_PASSWORD, APP_USER, BUILD_DIR, DATA_DIR, EXPORTS_DIR, FETCH_TIMES,
                       GUEST_COOKIE_SECURE, GUEST_MODE, GUEST_SESSION_HOURS, GUEST_TOKEN, MARKET_DIR, MAX_UPLOAD_MB,
-                      PUBLIC_MARKET_DIR, STATIC_DIR)
+                      MCP_TOKEN, PUBLIC_MARKET_DIR, STATIC_DIR)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 log = logging.getLogger('portfolio')
@@ -104,6 +104,8 @@ def _security_headers(response, path):
 @app.middleware('http')
 async def guard(request: Request, call_next):
     path = request.url.path
+    if path == '/mcp':
+        return _security_headers(await call_next(request), path)
     if path not in PUBLIC and GUEST_MODE:
         if _expire_guest_session():
             return _security_headers(PlainTextResponse('Guest session expired; cleanup is waiting for the active job', 409), path)
@@ -178,6 +180,29 @@ def audit_decisions():
     if not path.exists():
         return JSONResponse([], status_code=404)
     return FileResponse(path, media_type='application/json')
+
+
+@app.post('/mcp')
+async def mcp_endpoint(request: Request):
+    """MCP for other agents. Its own bearer token, read tools plus the two what-if engines, and
+    nothing that fetches, rebuilds or imports -- those stay with the owner."""
+    import mcp
+    if not MCP_TOKEN:
+        raise HTTPException(404)
+    auth = request.headers.get('authorization', '')
+    if not (auth.startswith('Bearer ') and secrets.compare_digest(auth[7:], MCP_TOKEN)):
+        return JSONResponse(dict(jsonrpc='2.0', id=None,
+                                 error=dict(code=-32001, message='MCP token required')), 401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(dict(jsonrpc='2.0', id=None,
+                                 error=dict(code=-32700, message='parse error')), 400)
+    if isinstance(body, list):                       # a batch is a list of requests
+        out = [r for r in (mcp.handle(m) for m in body) if r is not None]
+        return JSONResponse(out) if out else JSONResponse(None, 202)
+    reply = mcp.handle(body)
+    return JSONResponse(reply) if reply is not None else JSONResponse(None, 202)
 
 
 @app.get('/compare.json')

@@ -11,6 +11,8 @@
   FETCH_TIMES     comma-separated HH:MM (TZ below) for automatic weekday fetches; empty disables
   TZ_NAME         timezone for FETCH_TIMES (default America/Toronto)
   MAX_UPLOAD_MB   per-file import limit (default 20)
+  MCP_TOKEN       enables the /mcp endpoint for other agents; empty (the default) disables it entirely.
+                  Deliberately separate from APP_PASSWORD so revoking agent access never locks you out.
 """
 import os
 from pathlib import Path
@@ -43,6 +45,7 @@ FETCH_TIMES = [t.strip() for t in os.environ.get('FETCH_TIMES', '').split(',') i
 TZ_NAME = os.environ.get('TZ_NAME', 'America/Toronto')
 MAX_UPLOAD_MB = float(os.environ.get('MAX_UPLOAD_MB', '20'))
 FETCH_COOLDOWN_S = int(os.environ.get('FETCH_COOLDOWN_S', '60'))
+MCP_TOKEN = os.environ.get('MCP_TOKEN', '')
 
 for d in (EXPORTS_DIR, MARKET_DIR, PUBLIC_MARKET_DIR, BUILD_DIR):
     d.mkdir(parents=True, exist_ok=True)

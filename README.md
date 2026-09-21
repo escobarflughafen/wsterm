@@ -72,6 +72,7 @@ pipeline/settings.py     env-driven paths and secrets            app/index.html 
 pipeline/store.py        CSV import: validate, merge, archive    app/static/app.js     all screens and charts
 pipeline/ledger.py       average-cost positions and realized P&L app/static/app.css    terminal theme
 pipeline/market_data.py  incremental Yahoo/BoC fetch             app/static/i18n.js    EN/中文 strings
+pipeline/mcp.py          MCP tools for other agents (read + what-if)
 pipeline/prices.py       cached price/FX readers (split-aware)   tests/                pytest + fixtures
 pipeline/engine.py       daily replay, benchmarks, remove-trades deploy/               host deploy script
 pipeline/freeze.py       stop-trading simulation                 Dockerfile            app + test stages
@@ -188,6 +189,7 @@ All via environment (`.env`):
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted for `X-Forwarded-*`. |
 | `MAX_UPLOAD_MB` | `20` | Per-file import limit. |
 | `FETCH_COOLDOWN_S` | `60` | Minimum gap between manual fetches. |
+| `MCP_TOKEN` | *(empty)* | Enables `POST /mcp` for other agents. Empty disables the endpoint entirely (404). Separate from `APP_PASSWORD`, so revoking agent access never locks you out. |
 | `DATA_DIR` | `/data` (container), `./var` (local) | Root of all state; `EXPORTS_DIR`, `MARKET_DIR`, `BUILD_DIR` override parts. |
 | `PUBLIC_MARKET_DIR` | `MARKET_DIR` | Public-only price, FX and fetch/calendar cache; split out for ephemeral guest deployments. |
 | `GUEST_MODE` / `GUEST_TOKEN` | off / — | URL-token guest authentication. Guest mode requires a token of at least 32 characters. |
