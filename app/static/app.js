@@ -4,7 +4,10 @@ const SCREENS = [
   ['ALOC', 'ALLOCATION'], ['RULE', 'TO DO & RULES'], ['EVT', 'EVENTS'], ['INC', 'INCOME'], ['AUD', 'DECISION AUDIT'], ['SIM', 'WHAT-IF'], ['DATA', 'DATA & FETCH'], ['IMP', 'IMPORT'],
 ];
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
-const BENCH_COLOR = { 'XEQT.TO': 'var(--s2)', 'VOO': 'var(--s3)' };
+// Benchmarks take colours by position from a validated ramp, so adding one to config is enough.
+// The first two keep the hues they have always had; --s1 stays the portfolio's own line.
+const BENCH_RAMP = ['var(--s2)', 'var(--s3)', '#5aa84f', '#8f6bd1', '#00a79a'];
+const benchColor = b => BENCH_RAMP[(D && D.cfg ? D.cfg.benchmarks : []).indexOf(b)] || 'var(--ref)';
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
   contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', cmpSel: null, cmpLoading: false, cmpMode: 'MARKET', perfScope: 'PORTFOLIO', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
@@ -439,13 +442,13 @@ const SCREEN = {
         { name: invested ? 'INVESTED GAIN' : 'YOUR GAIN', short: 'YOU', color: 'var(--s1)', values: gainOf(P.total),
           alt: rebaseTwr(P.twr), altFmt: v => pct(v, 2) },
         ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} WITH THE SAME MONEY`, short: b.replace('.TO', ''),
-          color: BENCH_COLOR[b], values: gainOf(x.value), alt: rebaseTwr(x.twr), altFmt: v => pct(v, 2) })),
+          color: benchColor(b), values: gainOf(x.value), alt: rebaseTwr(x.twr), altFmt: v => pct(v, 2) })),
       ];
       yfmt = (v, full) => full ? money(v) : Math.abs(v) >= 1000 ? (v < 0 ? '-$' : '$') + nf0.format(Math.round(Math.abs(v) / 1000)) + 'K' : money(v);
     } else if (state.mode === 'VALUE') {
       series = [
         { name: invested ? 'INVESTED (NO CASH)' : 'PORTFOLIO', short: 'YOU', color: 'var(--s1)', values: P.total.slice(i0) },
-        ...Object.entries(P.bench).map(([b, x]) => ({ name: invested ? `SAME MONEY IN ${b.replace('.TO', '')}` : `ALL DEPOSITS IN ${b.replace('.TO', '')}`, short: b.replace('.TO', ''), color: BENCH_COLOR[b], values: x.value.slice(i0) })),
+        ...Object.entries(P.bench).map(([b, x]) => ({ name: invested ? `SAME MONEY IN ${b.replace('.TO', '')}` : `ALL DEPOSITS IN ${b.replace('.TO', '')}`, short: b.replace('.TO', ''), color: benchColor(b), values: x.value.slice(i0) })),
         { name: invested ? 'CAPITAL DEPLOYED' : 'NET DEPOSITED', short: invested ? 'CAPITAL' : 'DEPOSITED', color: 'var(--ref)', width: 1.5, values: P.contrib.slice(i0) },
       ];
       yfmt = v => v >= 1000 ? '$' + nf0.format(Math.round(v / 1000)) + 'K' : money(v);
@@ -458,7 +461,7 @@ const SCREEN = {
         { name: invested ? 'INVESTED MONEY (TIME-WEIGHTED)' : 'PORTFOLIO (TIME-WEIGHTED)', short: 'YOU', color: 'var(--s1)',
           values: rebase(P.twr), alt: gainOf2(P.total), altFmt: v => money(v, 2) },
         ...Object.entries(P.bench).map(([b, x]) => ({ name: `${b.replace('.TO', '')} TOTAL RETURN (CAD)`, short: b.replace('.TO', ''),
-          color: BENCH_COLOR[b], values: rebase(x.twr), alt: gainOf2(x.value), altFmt: v => money(v, 2) })),
+          color: benchColor(b), values: rebase(x.twr), alt: gainOf2(x.value), altFmt: v => money(v, 2) })),
       ];
       yfmt = (v, full) => (v * 100).toFixed(full ? 2 : 0) + '%';
     }
