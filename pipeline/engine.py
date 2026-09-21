@@ -74,6 +74,20 @@ class Calendar:
         return adj if ticker.endswith(CAD_SUFFIXES) else adj * self.fx
 
 
+def transfer_value(a, cal, d, net, cur):
+    """What the shares were worth the day they moved, falling back to the stated book value."""
+    if not is_option(a['symbol']):
+        try:
+            px = cal.price_cad(position_key(a, cal.tmap)[1])
+            if len(px):
+                mark = float(px.asof(d))
+                if mark > 0:
+                    return float(a['quantity']) * mark
+        except (FileNotFoundError, KeyError, ValueError):
+            pass
+    return cal.to_cad(net, cur, d)
+
+
 def replay(acts, cal):
     """Daily CAD value per account, net deposits, and ending quantities."""
     qty_events = collections.defaultdict(list)
@@ -89,7 +103,10 @@ def replay(acts, cal):
             if is_option(a['symbol']):
                 option_cost[key].append((d, cal.to_cad(-net, cur, d)))
         if t == 'InternalSecurityTransfer':
-            flow_events[a['account_type']].append((d, cal.to_cad(net, cur, d)))  # shares enter/leave tracked accounts
+            # Shares enter or leave a tracked account, and the portfolio revalues them at market. The
+            # export states a book value here; using it leaves the difference with nowhere to go, and
+            # the return series books it as a gain on the transfer day.
+            flow_events[a['account_type']].append((d, transfer_value(a, cal, d, net, cur)))
         elif net:
             cash_events[(a['account_type'], cur)].append((d, net))
         if t == 'MoneyMovement':
@@ -157,6 +174,33 @@ def twr(total, contrib):
     prev = total.shift(1)
     r = ((total - daily_flow) / prev - 1).where(prev > 50, 0.0).fillna(0.0)
     return (1 + r).cumprod()
+
+
+def mwr(total, contrib):
+    """Annualised money-weighted return: the rate at which the deposits, placed when they were placed,
+    grow into today's value. TWR asks how good the decisions were per unit of time and weights every
+    day alike; this asks what the money earned, which is the number that matches the bank balance.
+    Returns None when the flows do not bracket a solution (an emptied account, say)."""
+    flows = contrib.diff().fillna(contrib.iloc[0])
+    end = float(total.iloc[-1])
+    last = total.index[-1]
+    cf = [(float(f), (last - d).days / 365.25) for d, f in flows.items() if abs(float(f)) > 1e-9]
+    if not cf or end <= 0:
+        return None
+
+    def gap(r):
+        return sum(f * (1 + r) ** y for f, y in cf) - end
+
+    lo, hi = -0.9999, 10.0
+    if gap(lo) > 0 or gap(hi) < 0:
+        return None
+    for _ in range(120):                       # bisection: monotone while deposits dominate
+        mid = (lo + hi) / 2
+        if gap(mid) < 0:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def benchmark_value(ticker, contrib, cal):

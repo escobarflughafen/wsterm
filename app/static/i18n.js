@@ -145,6 +145,9 @@ const ZH = {
   'Hourly bars are kept only for current holdings, the benchmarks, and anything traded in the last five weeks. Yahoo serves intraday history for a recent window only, so there is nothing to back-fill for an older position.': '盘中K线只保留当前持仓、基准，以及最近五周内交易过的代码。雅虎只提供最近一段时间的盘中历史，更早的持仓无法回补。',
   'A bar is stamped with the hour it opened, in the exchange\'s own time. Wealthsimple stamps an order when it was placed, never when it filled, so ▲/▼ mark the hour an order was entered; one queued before the open is drawn at the open, because nothing in the export says when it actually executed. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.': '每根K线以其开始的整点标记，使用交易所本地时间。Wealthsimple 记录的是下单时间而非成交时间，因此 ▲/▼ 标记的是下单所在的那个小时；开盘前挂的单画在开盘处，因为导出文件没有说明它究竟何时成交。盘中交易时段内，最新一根K线仍在形成中。多伦多交易所大部分标的的开盘K线，雅虎不提供成交量，这些显示为 — 并且不计入均值，而不是当作零。盘中K线不做拆股与分红调整；雅虎只提供最近一个月，并且每次是重新抓取而非累积。',
 
+  'RETURN': '收益率',
+  'ON YOUR MONEY': '资金回报率', 'annualised · every dollar counts alike': '年化 · 每一元同等权重',
+  'time-weighted · every day counts alike': '时间加权 · 每一天同等权重', 'time-weighted: ': '时间加权：',
   'ACTUAL PORTFOLIO': '实际组合', 'TRANSFER': '转移', 'SOURCE': '来源', 'RESIDUAL': '残差',
   'WHERE THE GAIN COMES FROM': '收益从何而来', 'campaign P&L is trades only · this ties it to the figure PERF reports': '持仓周期盈亏只含交易 · 此处与业绩表现页的收益对账',
   'CAMPAIGN P&L': '持仓周期盈亏', 'INCOME & COSTS': '收益与成本', 'PORTFOLIO GAIN': '组合收益',
@@ -381,6 +384,8 @@ const ZH_PATTERNS = [
   [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$$4）'],
   [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
   [/^(\d+) MONTHS$/, '$1 个月'],
+  [/^time-weighted · worth (.+) in range$/, '时间加权 · 区间内相当于 $1'],
+
   [/^Cash and cash ETFs \((.+)\) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality\.$/, '双方均剔除现金及现金 ETF（$1）：只有在你买入风险资产时基准才获得资金，股息也像现实中一样流出。'],
   [/^deposits after the freeze buy (.+), the cash ETF you park money in$/, '冻结后的存款买入 $1（你用来存放现金的现金 ETF）'],
   [/^deposits after the freeze buy (.+) the same day$/, '冻结后的存款当天买入 $1'],

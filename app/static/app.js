@@ -290,6 +290,24 @@ function twrOf(values, contribs) {
   }
   return idx - 1;
 }
+// Money-weighted return: the annualised rate at which the money actually in the account grows into
+// its ending value. twrOf weights every day alike, which flatters an account that grew from a small
+// base; this weights every dollar, and is the number that matches the bank balance.
+function mwrOf(values, contribs, dates) {
+  const end = values[values.length - 1];
+  if (!(end > 0) || values.length < 2) return null;
+  const last = Date.parse(dates[dates.length - 1]), YEAR = 31557600000;
+  const cf = [[values[0], (last - Date.parse(dates[0])) / YEAR]];      // the opening balance is money in
+  for (let i = 1; i < values.length; i++) {
+    const f = contribs[i] - contribs[i - 1];
+    if (Math.abs(f) > 1e-9) cf.push([f, (last - Date.parse(dates[i])) / YEAR]);
+  }
+  const gap = r => cf.reduce((a, [f, y]) => a + f * Math.pow(1 + r, y), 0) - end;
+  let lo = -0.9999, hi = 10;
+  if (gap(lo) > 0 || gap(hi) < 0) return null;
+  for (let k = 0; k < 120; k++) { const m = (lo + hi) / 2; if (gap(m) < 0) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
 function rangeStart(dates, range) {
   if (range === 'ALL') return 0;
   const end = new Date(dates[dates.length - 1]);
@@ -432,7 +450,8 @@ const SCREEN = {
         stat('BALANCE CHANGE', signed(change), 'money added + investment gain'),
         stat('MONEY ADDED', signed(added), 'deposits and transfers in range'),
         stat('INVESTMENT GAIN', signed(change - added), 'balance change minus money added'),
-        stat('RETURN', signedPct(twrOf(v, c)), 'time-weighted, money in and out removed'));
+        stat('RETURN', signedPct(twrOf(v, c)), 'time-weighted · every day counts alike'),
+        stat('ON YOUR MONEY', signedPct(mwrOf(v, c, dates)), 'annualised · every dollar counts alike'));
     } else if (state.mode === 'GAIN') {
       // Money made or lost inside the range: value change minus money put in, so 0 = break even.
       const dep = P.contrib.slice(i0), base = dep[0];
@@ -482,11 +501,13 @@ const SCREEN = {
         statsEl = h('div', { class: 'stats' },
           stat(invested ? 'CAPITAL DEPLOYED' : 'MONEY ADDED', signed(added), invested ? 'net buys of risk assets in range' : 'deposits minus withdrawals in range'),
           stat('BALANCE CHANGE', signed(last(val) - val[0]), invested ? 'invested value change' : 'portfolio value change'),
-          stat('INVESTMENT GAIN', signed(gainYou), h('span', {}, 'rate: ', signedPct(retYou))),
+          stat('INVESTMENT GAIN', signed(gainYou), h('span', {}, 'time-weighted: ', signedPct(retYou))),
+          stat('ON YOUR MONEY', signedPct(mwrOf(val, dep, dates)), 'annualised · every dollar counts alike'),
           ...marks.map(m => stat(`${m.short} INSTEAD`, signed(m.gain), h('span', {}, 'you vs it: ', signed(gainYou - m.gain), ' · ', signedPP(retYou - m.ret)))));
       } else {
         statsEl = h('div', { class: 'stats' },
-          stat('YOUR RETURN', signedPct(retYou), h('span', {}, 'worth ', signed(gainYou), ' in range')),
+          stat('YOUR RETURN', signedPct(retYou), h('span', {}, 'time-weighted · worth ', signed(gainYou), ' in range')),
+          stat('ON YOUR MONEY', signedPct(mwrOf(val, dep, dates)), 'annualised · every dollar counts alike'),
           ...marks.map(m => stat(m.short, signedPct(m.ret), h('span', {}, 'you vs it: ', signedPP(retYou - m.ret), ' · ', signed(gainYou - m.gain)))));
       }
     }

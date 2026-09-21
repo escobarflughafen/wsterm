@@ -111,3 +111,55 @@ def test_redirecting_freed_cash_into_the_same_etf_is_a_wash(ctx):
     into_voo = engine.simulate(acts, [engine.trade_id(sell)], 'VOO')['summary']['simulated'] - base
     # removing a sell leaves the simulation with less cash; putting that shortfall into VOO cannot help it
     assert into_voo < idle
+
+
+def test_a_share_transfer_is_a_flow_at_market_not_at_book(synthetic_market):
+    """Wealthsimple states a book value on a transfer; the portfolio revalues the shares at market.
+    Using the stated figure leaves the difference with nowhere to go and the return series books it
+    as a gain on the transfer day."""
+    import engine
+
+    def row(date, kind, qty, net, sub=''):
+        return dict(effective_date=date, effective_time='10:00:00', settlement_date='', account_id='A1',
+                    account_type='TFSA', activity_type=kind, activity_sub_type=sub,
+                    description='', direction='LONG', symbol='VOO', currency='USD', quantity=str(qty),
+                    unit_price='', commission='0', net_cash_amount=str(net),
+                    booked_date=date, order_time='10:00:00')
+
+    acts = [dict(row('2026-01-05', 'MoneyMovement', 0, 4000), symbol=''),
+            row('2026-01-06', 'Trade', 4, -2000, 'BUY'),
+            # two shares leave, stated at a book value far from what they are worth that day
+            row('2026-02-02', 'InternalSecurityTransfer', -2, -800)]
+    cal = engine.Calendar('2026-01-05')
+    base = engine.replay(acts, cal)
+    px = float(cal.price_cad('VOO').asof(pd.Timestamp('2026-02-02')))
+    flow = base['contrib'].diff().fillna(base['contrib'].iloc[0]).loc[pd.Timestamp('2026-02-02')]
+    assert flow == pytest.approx(-2 * px, rel=1e-6)          # market, not the stated -800
+    # The four shares held at the open still move with the market that day, so the test is not that
+    # the day returns zero -- it is that the transfer itself contributes nothing to it.
+    def day_return(rows):
+        b = engine.replay(rows, cal)
+        r = engine.twr(b['total'], b['contrib'])
+        d = pd.Timestamp('2026-02-02')
+        return float(r.loc[d] / r.shift(1).loc[d] - 1)
+
+    assert day_return(acts) == pytest.approx(day_return(acts[:2]), abs=1e-9)
+
+
+def test_money_weighted_return_answers_a_different_question(synthetic_market):
+    """TWR weights every day alike, MWR every dollar. On a pot that grew from a small base they differ,
+    and the app now shows both rather than letting one be read as the other."""
+    import engine
+    acts = [dict(effective_date='2026-01-05', effective_time='09:00:00', settlement_date='', account_id='A1',
+                 account_type='TFSA', activity_type='MoneyMovement', activity_sub_type='EFT', description='',
+                 direction='', symbol='', currency='USD', quantity='', unit_price='', commission='',
+                 net_cash_amount='1000', booked_date='2026-01-05', order_time='09:00:00'),
+            dict(effective_date='2026-01-06', effective_time='10:00:00', settlement_date='', account_id='A1',
+                 account_type='TFSA', activity_type='Trade', activity_sub_type='BUY', description='',
+                 direction='LONG', symbol='VOO', currency='USD', quantity='1', unit_price='505',
+                 commission='0', net_cash_amount='-505', booked_date='2026-01-06', order_time='10:00:00')]
+    cal = engine.Calendar('2026-01-05')
+    base = engine.replay(acts, cal)
+    m = engine.mwr(base['total'], base['contrib'])
+    assert m is not None and m > 0                # the fixture's VOO rises, so the money earned something
+    assert engine.mwr(base['total'] * 0, base['contrib']) is None   # an emptied account has no rate

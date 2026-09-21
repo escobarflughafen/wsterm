@@ -31,6 +31,10 @@ def category(symbol, account):
     return 'stocks'
 
 
+def r5(x):
+    return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), 5)
+
+
 def r2(x):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), 2)
 
@@ -528,9 +532,11 @@ def main():
                      unreal=r2(sum(to_cad(x['upl'] or 0, x['cur']) for x in rows)),
                      realized=r2(sum(p['realized_cad'] for p in positions)),
                      day=r2(sum(x['mv_cad'] * x['day_pct'] / (1 + x['day_pct']) for x in rows if x['day_pct'] is not None)),
-                     twr=round(float(twr.iloc[-1] - 1), 4),
+                     twr=round(float(twr.iloc[-1] - 1), 4), mwr=r5(engine.mwr(total, contrib)),
+                     invested_mwr=r5(engine.mwr(sleeve['value'], sleeve['capital'])),
                      bench={b: dict(value=r2(bench[b]['value'].iloc[-1]), twr=round(float(bench[b]['twr'].iloc[-1] - 1), 4)) for b in bench}),
         accounts=[dict(acct=a, value=r2(acct_val[a]), contrib=r2(flows[a].iloc[-1]), gain=r2(acct_val[a] - flows[a].iloc[-1]),
+                       twr=r5(engine.twr(value[a], flows[a]).iloc[-1] - 1), mwr=r5(engine.mwr(value[a], flows[a])),
                        weight=round(acct_val[a] / total_now, 4) if total_now else 0) for a in accounts],
         holdings=sorted(rows, key=lambda x: -x['mv_cad']),
         series=series,
