@@ -326,7 +326,7 @@ async function ensureCompare() {
   if (COMPARE || state.cmpLoading) return;
   state.cmpLoading = true;
   try {
-    const r = await fetch('/compare.json', { cache: 'no-store' });
+    const r = await fetch('/compare.json');
     COMPARE = r.ok ? await r.json() : {};
   } catch { COMPARE = {}; }
   state.cmpLoading = false;
@@ -338,7 +338,7 @@ async function ensureAuditDecisions() {
   if (!D || !D.audit || D.audit.decisions || state.auditLoading) return;
   state.auditLoading = true;
   try {
-    const r = await fetch('/audit_decisions.json', { cache: 'no-store' });
+    const r = await fetch('/audit_decisions.json');
     D.audit.decisions = r.ok ? await r.json() : [];
   } catch { D.audit.decisions = []; }
   state.auditLoading = false;
@@ -1866,7 +1866,7 @@ function renderTicker() {
     h('span', {}, h('span', {}, 'EXPORT '), h('b', {}, D.asof)));
 }
 async function load() {
-  const r = await fetch('/data.json', { cache: 'no-store' });
+  const r = await fetch('/data.json');          // ETag revalidates; an unchanged build is a 304
   D = r.ok ? await r.json() : null;
   renderTicker();
   if (!D) { load.done = true; load.wasEmpty = true; return go('IMP', false); }

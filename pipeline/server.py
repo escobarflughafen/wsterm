@@ -7,7 +7,7 @@ import base64, contextlib, hashlib, json, logging, re, secrets, shutil, threadin
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -96,8 +96,12 @@ def _security_headers(response, path):
         'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
         'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     })
-    if path.startswith('/api') or path.endswith('.json') or path.endswith('.csv'):
-        response.headers['Cache-Control'] = 'no-store'
+    if path.startswith('/api'):
+        response.headers['Cache-Control'] = 'no-store'          # status and job output: never keep
+    elif path.endswith('.json') or path.endswith('.csv'):
+        # Revalidate every time, but let the browser keep a copy so an unchanged
+        # build comes back as 304 with no body instead of another megabyte.
+        response.headers['Cache-Control'] = 'private, no-cache'
     return response
 
 
@@ -165,21 +169,31 @@ def index():
 app.mount('/static', StaticFiles(directory=STATIC_DIR / 'static'), name='static')
 
 
+def _dated(path, request, media_type='application/json'):
+    """Serve a computed file with an ETag so a reload costs nothing when it has not changed.
+    The tag is the build's own fingerprint: modification time and size."""
+    st = path.stat()
+    tag = f'W/"{int(st.st_mtime_ns)}-{st.st_size}"'
+    if request.headers.get('if-none-match') == tag:
+        return Response(status_code=304, headers={'ETag': tag})
+    return FileResponse(path, media_type=media_type, headers={'ETag': tag})
+
+
 @app.get('/data.json')
-def data_json():
+def data_json(request: Request):
     path = BUILD_DIR / 'data.json'
     if not path.exists():
         return JSONResponse(dict(empty=True, exports=store.status()), status_code=404)
-    return FileResponse(path, media_type='application/json')
+    return _dated(path, request)
 
 
 @app.get('/audit_decisions.json')
-def audit_decisions():
+def audit_decisions(request: Request):
     """Split out of data.json: only the decision-audit screen needs these rows."""
     path = BUILD_DIR / 'audit_decisions.json'
     if not path.exists():
         return JSONResponse([], status_code=404)
-    return FileResponse(path, media_type='application/json')
+    return _dated(path, request)
 
 
 @app.post('/mcp')
@@ -206,37 +220,37 @@ async def mcp_endpoint(request: Request):
 
 
 @app.get('/compare.json')
-def compare_json():
+def compare_json(request: Request):
     """Split out of data.json: per-ticker value and gain series, read only by the compare screen."""
     path = BUILD_DIR / 'compare.json'
     if not path.exists():
         return JSONResponse({}, status_code=404)
-    return FileResponse(path, media_type='application/json')
+    return _dated(path, request)
 
 
 @app.get('/prices/{ticker}.csv')
-def price_csv(ticker: str):
+def price_csv(ticker: str, request: Request):
     path = PUBLIC_MARKET_DIR / 'prices' / f'{ticker}.csv'
     if not TICKER.match(ticker) or not path.is_file():
         raise HTTPException(404, 'unknown ticker')
-    return FileResponse(path, media_type='text/csv')
+    return _dated(path, request, 'text/csv')
 
 
 @app.get('/hourly/{ticker}.csv')
-def hourly_csv(ticker: str):
+def hourly_csv(ticker: str, request: Request):
     """60-minute bars for the last month. Only kept for tickers still worth an intraday look."""
     path = PUBLIC_MARKET_DIR / 'hourly' / f'{ticker}.csv'
     if not TICKER.match(ticker) or not path.is_file():
         raise HTTPException(404, 'no hourly bars for this ticker')
-    return FileResponse(path, media_type='text/csv')
+    return _dated(path, request, 'text/csv')
 
 
 @app.get('/fx_usdcad.csv')
-def fx_csv():
+def fx_csv(request: Request):
     path = PUBLIC_MARKET_DIR / 'fx_usdcad.csv'
     if not path.is_file():
         raise HTTPException(404)
-    return FileResponse(path, media_type='text/csv')
+    return _dated(path, request, 'text/csv')
 
 
 # ------------------------------------------------------------------ jobs

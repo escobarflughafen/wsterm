@@ -174,3 +174,28 @@ def test_compare_route_serves_per_ticker_series(client):
     r = client.get('/compare.json', auth=AUTH)
     assert r.status_code == 200 and r.json()['VOO']['peak_cost'] == 10
     assert client.get('/compare.json').status_code == 401
+
+
+def test_computed_files_revalidate_instead_of_resending(client):
+    """A reload of an unchanged build must cost nothing. Wrong Cache-Control defeats this even with
+    a correct ETag, so both are asserted."""
+    from settings import BUILD_DIR
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    (BUILD_DIR / 'data.json').write_text('{"summary":{"total":1}}')
+
+    first = client.get('/data.json', auth=AUTH)
+    assert first.status_code == 200
+    tag = first.headers['etag']
+    assert first.headers['cache-control'] == 'private, no-cache'
+
+    again = client.get('/data.json', auth=AUTH, headers={'If-None-Match': tag})
+    assert again.status_code == 304 and not again.content
+
+    (BUILD_DIR / 'data.json').write_text('{"summary":{"total":2}}')
+    fresh = client.get('/data.json', auth=AUTH, headers={'If-None-Match': tag})
+    assert fresh.status_code == 200 and fresh.headers['etag'] != tag
+
+
+def test_api_responses_are_never_stored(client):
+    """Job status and import previews must not sit in a disk cache."""
+    assert client.get('/api/status', auth=AUTH).headers['cache-control'] == 'no-store'
