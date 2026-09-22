@@ -70,7 +70,7 @@ layer (auth, CSRF, upload limits, path traversal). They use synthetic fixtures o
 ```
 pipeline/settings.py     env-driven paths and secrets            app/index.html        page shell
 pipeline/store.py        CSV import: validate, merge, archive    app/static/app.js     all screens and charts
-pipeline/ledger.py       average-cost positions and realized P&L app/static/app.css    terminal theme
+pipeline/ledger.py       average-cost positions and realized P&L app/static/app.css    layout + themes
 pipeline/market_data.py  incremental Yahoo/BoC fetch             app/static/i18n.js    EN/中文 strings
 pipeline/mcp.py          MCP tools for other agents (read + what-if)
 pipeline/prices.py       cached price/FX readers (split-aware)   tests/                pytest + fixtures
@@ -198,6 +198,33 @@ All via environment (`.env`):
 
 Portfolio targets, bucket membership and rule thresholds live in `$DATA_DIR/config.json`, seeded from
 `pipeline/config.example.json` on first init. It stays out of git so a public repo carries no personal strategy.
+
+### Themes
+
+`THEMES` in `app.js` lists them; the button in the top-right cycles, `?theme=signage` links to one, and the choice is
+remembered per browser. TERMINAL (amber on black) is the default and SIGNAGE (transit-sign ink on paper) is the
+worked example of a second one.
+
+A theme is a block of custom properties and nothing else — no rule elsewhere in `app.css` names a colour, and no
+colour is set from JavaScript, so adding one is `:root[data-theme="<name>"] { … }` plus an entry in `THEMES`. Charts
+read their colours at draw time and the whole page re-renders on a switch, so nothing is cached.
+
+What a new theme has to restate:
+
+| Tokens | Job |
+|---|---|
+| `--accent` `--head` `--label` `--key` | The four jobs the accent does: **selected/actionable**, **panel titles**, **column headers and stat captions**, **tickers, links and the hero figure**. On a dark ground one colour can do all four because it glows; on paper they must differ, or a panel title shouts as loudly as a column header. |
+| `--bg` `--panel` `--hl` `--line` `--axis` | Page ground, panel, hover fill, borders, chart axes. |
+| `--deep` `--deeper` `--sunk` `--well` `--rail` `--track` | The recessed surfaces: inset blocks, tooltips and the audit tape, story cards, the explain box, row hairlines, the allocation trough. |
+| `--ink` `--ink2` `--muted` `--on-accent` | Text, in three weights, plus text printed on an `--accent` fill. |
+| `--up` `--down` | Gain and loss. Reserved — never reuse them for a series. |
+| `--s1` `--s2` `--s3` `--ref` | The fixed series in PORT/PERF: portfolio, XEQT, VOO, and deposited as the reference line. |
+| `--c1`…`--c6` | The categorical palette, assigned in fixed order and never cycled. |
+| `--glow` `--drop-hover` `--shot` | The replay panel's corner light, the import drop-zone hover, and the ground the guide's screenshots keep. |
+
+Series colours are a computed thing, not a taste thing: validate `--s1..--s3` and `--c1..--c6` against that theme's
+`--panel` before committing them. SIGNAGE's are MTA line hues re-stepped to pass on white — the originals failed on
+lightness, chroma and a green/orange pair that collided under protanopia.
 
 ## Importing data
 
