@@ -150,6 +150,7 @@ const ZH = {
   'Window start': '起始日期', 'Window end': '结束日期', 'Back to the preset ranges': '回到预设区间',
   'ON YOUR MONEY': '资金回报率', 'annualised · every dollar counts alike': '年化 · 每一元同等权重',
   'time-weighted · every day counts alike': '时间加权 · 每一天同等权重', 'time-weighted: ': '时间加权：',
+  'TERMINAL': '终端', 'SIGNAGE': '标识', 'Switch theme': '切换主题',
   'ACTUAL PORTFOLIO': '实际组合', 'TRANSFER': '转移', 'SOURCE': '来源', 'RESIDUAL': '残差',
   'WHERE THE GAIN COMES FROM': '收益从何而来', 'campaign P&L is trades only · this ties it to the figure PERF reports': '持仓周期盈亏只含交易 · 此处与业绩表现页的收益对账',
   'CAMPAIGN P&L': '持仓周期盈亏', 'INCOME & COSTS': '收益与成本', 'PORTFOLIO GAIN': '组合收益',

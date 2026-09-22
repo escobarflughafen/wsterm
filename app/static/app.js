@@ -6,7 +6,7 @@ const SCREENS = [
 const NO_DATA_OK = new Set(['IMP', 'DATA', 'HELP']);
 // Benchmarks take colours by position from a validated ramp, so adding one to config is enough.
 // The first two keep the hues they have always had; --s1 stays the portfolio's own line.
-const BENCH_RAMP = ['var(--s2)', 'var(--s3)', '#5aa84f', '#8f6bd1', '#00a79a'];
+const BENCH_RAMP = ['var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)'];
 const benchColor = b => BENCH_RAMP[(D && D.cfg ? D.cfg.benchmarks : []).indexOf(b)] || 'var(--ref)';
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
@@ -329,7 +329,8 @@ function rangeStart(dates, range) {
   return i < 0 ? 0 : i;
 }
 
-const CMP_COLORS = ['#c98500', '#2f93d0', '#d0457f', '#5aa84f', '#8f6bd1', '#00a79a'];  // validated on #0b0b0b
+// Series colours live in CSS so a theme can restate them; each set is validated on its own ground.
+const CMP_COLORS = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)'];
 const CMP_MAX = CMP_COLORS.length;
 let COMPARE = null;
 async function ensureCompare() {
@@ -341,6 +342,33 @@ async function ensureCompare() {
   } catch { COMPARE = {}; }
   state.cmpLoading = false;
   render();
+}
+
+// ---------- theme ----------
+// TERMINAL is the default and the app's own look; SIGNAGE is a flat transit-sign light theme.
+// The choice is a per-browser convenience, so localStorage is the right place for it and a
+// failure to read it just means the default.
+const THEMES = [['', 'TERMINAL'], ['signage', 'SIGNAGE']];
+function currentTheme() {
+  // ?theme= wins and is remembered, the same way the language switch works, so a link can carry it.
+  const q = new URLSearchParams(location.search).get('theme');
+  if (q !== null && THEMES.some(([k]) => k === q)) {
+    try { localStorage.setItem('theme', q); } catch {}
+    return q;
+  }
+  try { return localStorage.getItem('theme') || ''; } catch { return ''; }
+}
+function applyTheme(name) {
+  const root = document.documentElement;
+  if (name) root.setAttribute('data-theme', name); else root.removeAttribute('data-theme');
+  try { localStorage.setItem('theme', name); } catch {}
+  const b = $('#themebtn');
+  if (b) b.textContent = (THEMES.find(([k]) => k === name) || THEMES[0])[1];
+  if (D) render();                       // charts read their colours at draw time
+}
+function cycleTheme() {
+  const i = THEMES.findIndex(([k]) => k === currentTheme());
+  applyTheme(THEMES[(i + 1) % THEMES.length][0]);
 }
 
 let auditReplayTimer = null;
@@ -2013,6 +2041,8 @@ document.addEventListener('keydown', e => {
   const n = +e.key; if (n >= 1 && n <= 9) return go(SCREENS[n - 1][0]);
   if (!vimMode && /^[a-z]$/i.test(e.key)) { $('#cmd').focus(); }   // start typing a command anywhere
 });
+$('#themebtn').addEventListener('click', cycleTheme);
+applyTheme(currentTheme());
 setInterval(() => { $('#clock').textContent = new Date().toLocaleString('en-CA', { hour12: false }).replace(',', ''); }, 1000);
 pollStatus();
 load().catch(e => { $('#main').replaceChildren(h('div', { class: 'skeleton' }, `COULD NOT LOAD DATA (${e.message})`)); });
