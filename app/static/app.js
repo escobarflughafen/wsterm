@@ -349,27 +349,35 @@ async function ensureCompare() {
 // The choice is a per-browser convenience, so localStorage is the right place for it and a
 // failure to read it just means the default.
 const THEMES = [['', 'TERMINAL'], ['signage', 'SIGNAGE']];
-function currentTheme() {
+function startingTheme() {
   // ?theme= wins and is remembered, the same way the language switch works, so a link can carry it.
+  // It only decides where we start: once the page is up, THEME is the live value, or a link's
+  // ?theme= would win every click and the switch would cycle straight back to itself.
   const q = new URLSearchParams(location.search).get('theme');
-  if (q !== null && THEMES.some(([k]) => k === q)) {
-    try { localStorage.setItem('theme', q); } catch {}
-    return q;
-  }
+  if (q !== null && THEMES.some(([k]) => k === q)) return q;
   try { return localStorage.getItem('theme') || ''; } catch { return ''; }
 }
+let THEME = startingTheme();
 function applyTheme(name) {
   const root = document.documentElement;
+  THEME = name;
   if (name) root.setAttribute('data-theme', name); else root.removeAttribute('data-theme');
   try { localStorage.setItem('theme', name); } catch {}
-  const b = $('#themebtn');
-  if (b) b.textContent = (THEMES.find(([k]) => k === name) || THEMES[0])[1];
+  updateThemeUI();
   if (D) render();                       // charts read their colours at draw time
 }
-function cycleTheme() {
-  const i = THEMES.findIndex(([k]) => k === currentTheme());
-  applyTheme(THEMES[(i + 1) % THEMES.length][0]);
+function nextTheme() {
+  const i = THEMES.findIndex(([k]) => k === THEME);
+  return THEMES[(i + 1) % THEMES.length];
 }
+// The button names where it goes, not where it is — the same promise the 中文/EN button makes.
+function updateThemeUI() {
+  const b = $('#themebtn');
+  if (!b) return;
+  b.textContent = nextTheme()[1];
+  b.title = tr('Theme (THEME <GO>)');
+}
+function cycleTheme() { applyTheme(nextTheme()[0]); }
 
 let auditReplayTimer = null;
 async function ensureAuditDecisions() {
@@ -1275,7 +1283,10 @@ const SCREEN = {
     const cmds = [...SCREENS.map(([k, n], i) => [`${k} <GO>  or  ${i + 1}`, n]),
       ['NVDA <GO>', 'Open a symbol: price history with your buys ▲ and sells ▼'],
       ['T.TO <GO>', 'Use the Yahoo ticker to disambiguate (T = AT&T, T.TO = Telus)'],
-      ['/  or start typing', 'Focus the command line'], ['LANG <GO>', 'Language: English / 中文'], ['FETCH <GO>', 'Download only market data that is due, then rebuild'], ['REBUILD <GO>', 'Recompute from exports and cached prices (no network)'], ['ESC', 'Back to previous screen'],
+      ['/  or start typing', 'Focus the command line'], ['LANG <GO>', 'Language: English / 中文'],
+      // Composed from translatable parts so adding a third theme cannot silently un-translate the row.
+      ['THEME <GO>  or  top-right', `${THEMES.map(([, n]) => n).join(' / ')} — ${tr('cycle, or name one directly')}`],
+      ['FETCH <GO>', 'Download only market data that is due, then rebuild'], ['REBUILD <GO>', 'Recompute from exports and cached prices (no network)'], ['ESC', 'Back to previous screen'],
       ['VIM <GO>  or  top-right VIM', 'Enable Vim keys: h/j/k/l move between panel controls · Enter/Space activate · gg/G top/bottom · Ctrl-d/Ctrl-u half-page · b back · i/: command'],
       [':q  or  top-right EXIT VIM', 'Exit Vim mode'],
       ['DATA <GO>  or  0', 'Fetch history, request budget, per-ticker freshness'],
@@ -1893,6 +1904,10 @@ function runCommand(raw) {
   const k = alias[c] || c;
   if (SCREEN[k] && k !== 'SYM') { msg(''); return go(k); }
   if (c === 'LANG' || c === '中文' || c === 'ZH' || c === 'EN' || c === 'ENGLISH') { msg(''); return switchLang(c === 'LANG' ? null : c === 'EN' || c === 'ENGLISH' ? 'en' : 'zh'); }
+  // THEME cycles; naming one goes straight to it, so a link or a habit can skip the cycle.
+  if (c === 'THEME') { msg(''); return cycleTheme(); }
+  const theme = THEMES.find(([, label]) => label === c);
+  if (theme) { msg(''); return applyTheme(theme[0]); }
   if (c === 'FETCH' || c === 'REFRESH') return startJob('fetch');
   if (c === 'REBUILD') return startJob('rebuild');
   if (!D) return msg('NO DATA YET — IMPORT YOUR EXPORTS');
@@ -2042,19 +2057,20 @@ document.addEventListener('keydown', e => {
   if (!vimMode && /^[a-z]$/i.test(e.key)) { $('#cmd').focus(); }   // start typing a command anywhere
 });
 $('#themebtn').addEventListener('click', cycleTheme);
-applyTheme(currentTheme());
+applyTheme(THEME);        // stamp the root and label the button from where we started
 setInterval(() => { $('#clock').textContent = new Date().toLocaleString('en-CA', { hour12: false }).replace(',', ''); }, 1000);
 pollStatus();
 load().catch(e => { $('#main').replaceChildren(h('div', { class: 'skeleton' }, `COULD NOT LOAD DATA (${e.message})`)); });
 function applyStaticText() {
   const narrow = matchMedia('(max-width: 760px)').matches;
-  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · AUD · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG' : 'or a ticker (NVDA, T.TO) · HELP · LANG');
+  $('#cmd').placeholder = narrow ? tr('Command or ticker…') : 'PORT · PERF · PNL · TRD · ALOC · RULE · EVT · INC · AUD · SIM · DATA · IMPORT · ' + (LANG === 'zh' ? '或输入代码（NVDA、T.TO）· HELP · LANG · THEME' : 'or a ticker (NVDA, T.TO) · HELP · LANG · THEME');
   $('#rebuild').textContent = tr('REBUILD');
   $('#rebuild').title = tr('Recompute from exports and cached prices, no network (REBUILD <GO>)');
   $('#fetch').title = tr('Fetch due market data, then rebuild (FETCH <GO>)');
   $('#fetchinfo').title = tr('Open DATA screen');
   $('#langbtn').textContent = LANG === 'zh' ? 'EN' : '中文';
   $('#langbtn').title = tr('Language');
+  updateThemeUI();
   updateVimUI();
 }
 function switchLang(lang) {

@@ -357,6 +357,8 @@ const ZH = {
   '/  or start typing': '/  或直接输入', 'NEW EXPORTS': '新导出文件',
   'Drop them into WS/, then REBUILD (or FETCH if prices are due). Thresholds and buckets: pipeline/config.json': '放入 WS/ 后重建（如价格待更新则抓取）。阈值和类别：pipeline/config.json',
   'DATA <GO>  or  0': 'DATA <GO>  或  0', 'Language': '语言', 'Language: English / 中文': '语言：English / 中文',
+  'THEME <GO>  or  top-right': 'THEME <GO>  或  右上角', 'cycle, or name one directly': '轮换，也可直接输入主题名',
+  'Theme (THEME <GO>)': '主题（THEME <GO>）',
 };
 
 const ZH_PATTERNS = [

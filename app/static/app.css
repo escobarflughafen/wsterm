@@ -282,7 +282,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focu
 
 /* ---- Chinese ---- */
 :lang(zh-CN) .panel > h2, :lang(zh-CN) .stat .l, :lang(zh-CN) th, :lang(zh-CN) .fkeys button { letter-spacing: 0; }
-#langbtn { padding: 0 6px; border: 1px solid var(--axis); }
+#langbtn, #themebtn { padding: 0 6px; border: 1px solid var(--axis); }
 
 /* ---- export guide ---- */
 .guide { display: grid; gap: 14px; padding: 8px; }
