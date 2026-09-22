@@ -260,3 +260,15 @@ button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focu
 .rule.todo.done .nm { color: var(--muted); text-decoration: line-through; }
 .rule .spec { font: 9px var(--mono); letter-spacing: .04em; opacity: .65; margin-top: 2px; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+/* PERF · TICKERS: the picked set in one row, each removable, so the ranked table stays whole */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px;
+  border: 1px solid var(--line); border-top: 0; background: var(--panel); }
+.chip { display: inline-flex; align-items: center; gap: 7px; background: var(--hl); border: 1px solid var(--axis);
+  color: var(--ink); font: 11px var(--mono); padding: 3px 8px; cursor: pointer; }
+.chip:hover { border-color: var(--amber); }
+.chip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.chip b { color: var(--muted); font-weight: 400; font-size: 13px; line-height: 1; }
+.chip:hover b { color: var(--down); }
+.chip.clearall { color: var(--muted); }
+.dateinput { background: var(--hl); border: 1px solid var(--axis); color: var(--ink);
+  font: 11px var(--mono); padding: 2px 5px; color-scheme: dark; }

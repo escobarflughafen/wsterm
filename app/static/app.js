@@ -10,7 +10,7 @@ const BENCH_RAMP = ['var(--s2)', 'var(--s3)', '#5aa84f', '#8f6bd1', '#00a79a'];
 const benchColor = b => BENCH_RAMP[(D && D.cfg ? D.cfg.benchmarks : []).indexOf(b)] || 'var(--ref)';
 const state = { screen: 'PORT', range: 'ALL', mode: 'VALUE', basis: 'INVESTED', acct: 'ALL', tradeAcct: 'ALL', tradeSym: '', sym: null,
   imp: { preview: null, busy: false, force: false, result: null },
-  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', cmpSel: null, cmpLoading: false, cmpMode: 'MARKET', perfScope: 'PORTFOLIO', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
+  contribMonths: '12', optionFocus: null, auditHorizon: '20d', auditDay: null, auditPlaying: false, auditSpeed: 650, auditRefocus: false, auditLoading: false, intradaySpan: '5D', cmpSel: null, cmpLoading: false, cmpMode: 'MARKET', cmpFrom: '', cmpTo: '', perfScope: 'PORTFOLIO', simMode: 'FREEZE', frz: { date: null, trade: null, deposits: 'CASH', result: null, sweep: null, sweepFor: null, busy: false, chart: 'RETURN', sym: '', err: '' },
   simAcct: 'ALL', simSym: '', simSide: 'ALL', simRedirect: 'CASH', simSel: new Set(loadSel()), simResult: null };
 let vimMode = (() => { try { return localStorage.getItem('vim-mode') === '1'; } catch { return false; } })();
 function loadSel() { try { return JSON.parse(localStorage.getItem('sim-exclude') || '[]'); } catch { return []; } }
@@ -655,23 +655,33 @@ const SCREEN = {
         Math.abs(last(b).gain.at(-1)) - Math.abs(last(a).gain.at(-1))).slice(0, 4));
     }
     const dates = D.series.dates;
-    const i0 = rangeStart(dates, state.range);
-    const win = dates.slice(i0);
+    // A preset ends today; typed dates can end anywhere, so the window needs both ends.
+    const custom = state.cmpFrom || state.cmpTo;
+    const clamp = (d, fb) => { const i = dates.findIndex(x => x >= d); return i < 0 ? fb : i; };
+    const i0 = custom && state.cmpFrom ? clamp(state.cmpFrom, 0) : rangeStart(dates, state.range);
+    let i1 = dates.length - 1;
+    if (custom && state.cmpTo) {
+      const j = dates.findIndex(x => x > state.cmpTo);
+      i1 = j <= 0 ? dates.length - 1 : j - 1;
+    }
+    if (i1 <= i0) i1 = Math.min(dates.length - 1, i0 + 1);
+    const win = dates.slice(i0, i1 + 1);
+    const cut = a => a.slice(i0, i1 + 1);
     const picked = names.filter(t => state.cmpSel.has(t));
     const colorOf = t => CMP_COLORS[picked.indexOf(t) % CMP_COLORS.length];
     // Two measures never share an axis: one chart each, same colours, same days.
     const mk = (field) => picked.map(t => {
       const s = COMPARE[t][field];
       if (!s) return { name: t, short: t, color: colorOf(t), values: win.map(() => null) };
-      const a = s.slice(i0);
+      const a = cut(s);
       return { name: t, short: t, color: colorOf(t),
         values: field === 'tr' ? a.map(v => v / a[0] - 1)          // what a dollar in the security did
           : field === 'gain' ? a.map(v => v - a[0]) : a };
     });
     const rows = names.map(t => {
       const c = COMPARE[t], v = c.value.at(-1), g = c.gain.at(-1);
-      const gv = c.gain.slice(i0), vv = c.value.slice(i0);
-      const tv = c.tr ? c.tr.slice(i0) : null;
+      const gv = cut(c.gain), vv = cut(c.value);
+      const tv = c.tr ? cut(c.tr) : null;
       return { sym: t, value: v, gain: g, held: c.held,
         rangeGain: gv.at(-1) - gv[0], peak: Math.max(...vv),
         mkt: tv && tv[0] ? tv.at(-1) / tv[0] - 1 : null,          // the security alone, over the range
@@ -683,12 +693,30 @@ const SCREEN = {
       else return msg(`Pick at most ${CMP_MAX} tickers`);
       msg(''); rerenderKeepScroll();
     };
-    const ctl = [...seg(['1M', '3M', '6M', 'YTD', '1Y', 'ALL'], state.range, r => { state.range = r; render(); }),
+    const setDate = (k, v) => { state[k] = v; rerenderKeepScroll(); };
+    const ctl = [
+      ...seg(['1M', '3M', '6M', 'YTD', '1Y', 'ALL'], custom ? '' : state.range,
+        r => { state.cmpFrom = state.cmpTo = ''; state.range = r; render(); }),
+      h('input', { class: 'dateinput', type: 'date', 'aria-label': 'Window start', value: state.cmpFrom,
+        min: dates[0], max: dates[dates.length - 1], onchange: e => setDate('cmpFrom', e.target.value) }),
+      h('span', { class: 'mut' }, '→'),
+      h('input', { class: 'dateinput', type: 'date', 'aria-label': 'Window end', value: state.cmpTo,
+        min: dates[0], max: dates[dates.length - 1], onchange: e => setDate('cmpTo', e.target.value) }),
+      custom ? h('button', { title: 'Back to the preset ranges',
+        onclick: () => { state.cmpFrom = state.cmpTo = ''; render(); } }, 'CLEAR') : null,
       ...seg(['MARKET', 'VALUE', 'GAIN'], state.cmpMode, m => { state.cmpMode = m; render(); })];
-    const chart = (title, sub, field, fmt) => panel(title, sub, null,
+    // ctl belongs on the one chart panel that renders; passing null here is how it went missing.
+    const chart = (title, sub, field, fmt) => panel(title, sub, ctl,
       h('div', { class: 'body' }, picked.length
         ? lineChart({ dates: win, series: mk(field), height: 320, zeroLine: field === 'gain', yfmt: fmt })
         : h('span', { class: 'mut' }, 'Tick a ticker below.')));
+    const chips = h('div', { class: 'chips' },
+      picked.length ? picked.map(t => h('button', { class: 'chip', title: `Remove ${t}`,
+        onclick: () => { state.cmpSel.delete(t); rerenderKeepScroll(); } },
+        h('i', { style: `background:${colorOf(t)}` }), h('span', { raw: true }, t), h('b', {}, '×')))
+        : h('span', { class: 'mut' }, 'Nothing selected — tick a row below.'),
+      picked.length > 1 ? h('button', { class: 'chip clearall',
+        onclick: () => { state.cmpSel.clear(); rerenderKeepScroll(); } }, 'CLEAR ALL') : null);
     return [
       h('div', { class: 'stats' },
         stat('COMPARING', `${picked.length} / ${CMP_MAX}`, `${names.length} tickers with history`),
@@ -700,8 +728,10 @@ const SCREEN = {
               stat('SPREAD', on.length > 1 ? signedPP(on[0].mkt - on.at(-1).mkt, 1) : '—', 'best minus worst')];
           })()
           : [stat('VALUE NOW', money(rows.filter(r => r.on).reduce((a, r) => a + r.value, 0)), 'selected, CAD'),
-            stat('GAIN IN RANGE', signed(rows.filter(r => r.on).reduce((a, r) => a + r.rangeGain, 0)), `${win[0]} → ${win.at(-1)}`),
+            stat('GAIN IN RANGE', signed(rows.filter(r => r.on).reduce((a, r) => a + r.rangeGain, 0)),
+          `${win[0]} → ${win.at(-1)} · ${win.length} days`),
             stat('GAIN ALL TIME', signed(rows.filter(r => r.on).reduce((a, r) => a + r.gain, 0)), 'selected, realised + unrealised')])),
+      chips,
       h('div', { class: 'row', style: 'grid-template-columns:1fr' },
         state.cmpMode === 'MARKET' ? chart('MARKET RETURN', 'total return of the security in CAD, dividends reinvested · nothing here depends on what you own', 'tr', (v, full) => pct(v, full ? 2 : 0)) : null,
         state.cmpMode === 'VALUE' ? chart('YOUR VALUE', 'what each position is worth, CAD', 'value', (v, full) => money(v, full ? 2 : 0)) : null,

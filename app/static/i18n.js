@@ -146,6 +146,8 @@ const ZH = {
   'A bar is stamped with the hour it opened, in the exchange\'s own time. Wealthsimple stamps an order when it was placed, never when it filled, so ▲/▼ mark the hour an order was entered; one queued before the open is drawn at the open, because nothing in the export says when it actually executed. While a session is open the newest bar is still forming. Yahoo reports no volume for the opening bar on most TSX listings; those show as — and stay out of the average rather than counting as zero. Intraday bars are not split- or dividend-adjusted; only the last month is available from Yahoo, and it is refetched rather than accumulated.': '每根K线以其开始的整点标记，使用交易所本地时间。Wealthsimple 记录的是下单时间而非成交时间，因此 ▲/▼ 标记的是下单所在的那个小时；开盘前挂的单画在开盘处，因为导出文件没有说明它究竟何时成交。盘中交易时段内，最新一根K线仍在形成中。多伦多交易所大部分标的的开盘K线，雅虎不提供成交量，这些显示为 — 并且不计入均值，而不是当作零。盘中K线不做拆股与分红调整；雅虎只提供最近一个月，并且每次是重新抓取而非累积。',
 
   'RETURN': '收益率',
+  'CLEAR': '清除', 'CLEAR ALL': '全部清除', 'Nothing selected — tick a row below.': '尚未选择 —— 在下方勾选。',
+  'Window start': '起始日期', 'Window end': '结束日期', 'Back to the preset ranges': '回到预设区间',
   'ON YOUR MONEY': '资金回报率', 'annualised · every dollar counts alike': '年化 · 每一元同等权重',
   'time-weighted · every day counts alike': '时间加权 · 每一天同等权重', 'time-weighted: ': '时间加权：',
   'ACTUAL PORTFOLIO': '实际组合', 'TRANSFER': '转移', 'SOURCE': '来源', 'RESIDUAL': '残差',
@@ -384,6 +386,9 @@ const ZH_PATTERNS = [
   [/^(\w+) exit target: sell ([\d.]+) of ([\d.]+) shares \(~\$([\d,]+)\)$/, '$1 减仓目标：卖出 $2 / $3 股（约 $$$4）'],
   [/^(\d+) × ([A-Z0-9.]+) @ ([\d,.]+)$/, '$1 股 $2 @ $3'],
   [/^(\d+) MONTHS$/, '$1 个月'],
+  [/^Remove ([A-Z0-9.\-]+)$/, '移除 $1'],
+  [/^(\d{4}-\d{2}-\d{2}) → (\d{4}-\d{2}-\d{2}) · (\d+) days$/, '$1 → $2 · $3 天'],
+
   [/^time-weighted · worth (.+) in range$/, '时间加权 · 区间内相当于 $1'],
 
   [/^Cash and cash ETFs \((.+)\) are excluded from both sides: the benchmark receives money only when you bought a risk asset, and dividends leave the sleeve as they do in reality\.$/, '双方均剔除现金及现金 ETF（$1）：只有在你买入风险资产时基准才获得资金，股息也像现实中一样流出。'],
