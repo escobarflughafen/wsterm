@@ -86,3 +86,80 @@ def test_hourly_universe_keeps_recently_traded_names():
     acts = [dict(activity_type='Trade', symbol='NVDA', currency='USD', effective_date=recent.isoformat()),
             dict(activity_type='Trade', symbol='OLD', currency='USD', effective_date=stale.isoformat())]
     assert m.hourly_tickers(acts, tmap, {'VOO'}) == {'VOO', 'NVDA'}
+
+
+def _bars(dates, close):
+    import pandas as pd
+    return pd.DataFrame({'Date': pd.to_datetime(dates), 'Open': close, 'High': close,
+                         'Low': close, 'Close': close, 'Adj Close': close, 'Volume': 100})
+
+
+def test_a_clean_overlap_appends_only_the_new_tail(tmp_path):
+    """The five-day rewind corrects nothing most days; rewriting five hundred rows to add one is waste."""
+    import pandas as pd
+    path = str(tmp_path / 'VOO.csv')
+    old = _bars(['2026-01-05', '2026-01-06', '2026-01-07'], [100.0, 101.0, 102.0])
+    old.to_csv(path, index=False, float_format='%.6f')
+    before = open(path).read()
+
+    new = _bars(['2026-01-06', '2026-01-07', '2026-01-08'], [101.0, 102.0, 103.0])
+    assert m.write_bars(path, old, new) == 'append'
+
+    after = pd.read_csv(path, parse_dates=['Date'])
+    assert len(after) == 4                                  # no duplicated overlap
+    assert list(after['Close']) == [100.0, 101.0, 102.0, 103.0]
+    assert open(path).read().startswith(before)             # the old bytes were never rewritten
+
+
+def test_a_restated_overlap_rewrites_the_file(tmp_path):
+    """A split back-adjusts history. That has to reach a file already on disk."""
+    import pandas as pd
+    path = str(tmp_path / 'VOO.csv')
+    old = _bars(['2026-01-05', '2026-01-06', '2026-01-07'], [100.0, 101.0, 102.0])
+    old.to_csv(path, index=False, float_format='%.6f')
+
+    halved = _bars(['2026-01-06', '2026-01-07', '2026-01-08'], [50.5, 51.0, 51.5])
+    assert m.write_bars(path, old, halved) == 'rewrite'
+    after = pd.read_csv(path, parse_dates=['Date'])
+    assert list(after['Close']) == [100.0, 50.5, 51.0, 51.5]   # the correction landed
+
+
+def test_nothing_new_writes_nothing(tmp_path):
+    path = str(tmp_path / 'VOO.csv')
+    old = _bars(['2026-01-05', '2026-01-06'], [100.0, 101.0])
+    old.to_csv(path, index=False, float_format='%.6f')
+    before = open(path).read()
+    assert m.write_bars(path, old, _bars(['2026-01-05', '2026-01-06'], [100.0, 101.0])) == 'unchanged'
+    assert open(path).read() == before
+
+
+def test_appended_rows_render_like_the_file_they_join(tmp_path):
+    """Volume arrives as an int and an older file holds it as a float. A file with two spellings of
+    one column is the kind of thing the next comparison trips over."""
+    import pandas as pd
+    path = str(tmp_path / 'VOO.csv')
+    old = _bars(['2026-01-05', '2026-01-06'], [100.0, 101.0])
+    old['Volume'] = old['Volume'].astype(float)
+    old.to_csv(path, index=False, float_format='%.6f')
+
+    new = _bars(['2026-01-06', '2026-01-07'], [101.0, 102.0])
+    new['Volume'] = new['Volume'].astype('int64')            # as the API delivers it
+    reread = pd.read_csv(path, parse_dates=['Date'])
+    assert m.write_bars(path, reread, new) == 'append'
+
+    lines = open(path).read().strip().splitlines()
+    vols = [l.split(',')[6] for l in lines[1:]]
+    assert len(set(v.count('.') for v in vols)) == 1          # one spelling throughout
+
+
+def test_a_batch_splits_into_one_frame_per_ticker(monkeypatch):
+    """One request carries many tickers; a name the response omits must be skipped, not written empty."""
+    import pandas as pd
+    idx = pd.to_datetime(['2026-01-05', '2026-01-06'])
+    frame = pd.concat({'VOO': pd.DataFrame({'Close': [1.0, 2.0]}, index=idx),
+                       'QQQ': pd.DataFrame({'Close': [3.0, 4.0]}, index=idx)}, axis=1)
+    monkeypatch.setattr(m.yf, 'download', lambda *a, **k: frame)
+    budget = m.Budget()
+    out = m._batch(['VOO', 'QQQ', 'NOPE'], '2026-01-01', budget, 'prices')
+    assert set(out) == {'VOO', 'QQQ'}                         # NOPE is absent, not empty
+    assert budget.requests == 1                               # three tickers, one call

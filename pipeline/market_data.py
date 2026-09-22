@@ -17,13 +17,18 @@ Budget rules (Yahoo publishes no limits, so stay far below anything that trips 4
     5 weeks) and are never requested twice within the hour, nor at all once the session has settled
   - closed positions that stopped trading (delisted) are re-checked at most weekly
   - calendars are requested once per day, and never for tickers that have none (ETFs)
+  - due tickers are fetched BATCH at a time in one request, so a full refresh is a handful of
+    round trips rather than one per ticker
+  - a file is appended to when the five-day overlap comes back unchanged, and rewritten only when
+    the broker actually restated something
   - requests are spaced by REQUEST_GAP seconds; a 429 pauses once, a second 429 aborts the run
 
 Run: pipeline/.venv/bin/python pipeline/market_data.py [--force]
 """
-import csv, datetime as dt, json, logging, os, sys, time, urllib.request
+import collections, csv, datetime as dt, json, logging, os, sys, time, urllib.request
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -50,6 +55,7 @@ CDR_SUFFIX = '.NE'  # CDRs trade on Cboe Canada
 EXCHANGE_SUFFIXES = ('.TO', '.V', '.NE', '.CN')  # some exports already carry one (e.g. RY.TO)
 CRYPTO = {'BTC', 'ETH', 'DOGE', 'SHIB', 'SOL', 'XRP', 'ADA', 'LTC'}
 REQUEST_GAP = 0.35          # seconds between network calls
+BATCH = 20                  # tickers per request: one round trip instead of twenty
 RATE_LIMIT_PAUSE = 20       # seconds to wait after the first 429
 STALE_DAYS = 10             # no new rows for this long => treat as delisted
 STALE_RECHECK_DAYS = 7
@@ -184,10 +190,90 @@ class Budget:
                 return None
 
 
+def _tidy(df):
+    """One ticker's frame from either API, normalised: dated rows with a real close."""
+    if df is None or df.empty:
+        return None
+    df = df.reset_index()
+    stamp = 'Date' if 'Date' in df.columns else df.columns[0]
+    df = df.rename(columns={stamp: 'Date'})
+    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None).dt.normalize()
+    df = df[df['Close'].notna()]              # today's row exists before the session has a close
+    return df if len(df) else None
+
+
+def _same_rows(a, b):
+    """Compare the numbers, not their rendering. Volume arrives as an int from the API and comes back
+    from disk as a float, so comparing formatted text calls every unchanged overlap a restatement."""
+    if a.shape != b.shape:
+        return False
+    for col in a.columns:
+        x, y = a[col], b[col]
+        if col == 'Date':
+            # Series.equals also compares dtype, and a parsed CSV does not always carry the same
+            # datetime unit as the API's frame. Only the instants matter.
+            if not (pd.to_datetime(x).to_numpy() == pd.to_datetime(y).to_numpy()).all():
+                return False
+        # Disk holds values rounded to six decimals; the API returns full precision. Half a unit in
+        # the last written place is the most an unchanged number can differ by. A restatement -- a
+        # split, a corrected close -- is orders of magnitude larger than that.
+        elif not np.allclose(pd.to_numeric(x, errors='coerce').fillna(0),
+                             pd.to_numeric(y, errors='coerce').fillna(0), rtol=0, atol=1e-6):
+            return False
+    return True
+
+
+def write_bars(path, old, new):
+    """Append when the overlap is untouched; rewrite when the broker restated something.
+
+    The five-day rewind exists so a late correction -- a split back-adjusting the history, a
+    provisional close being restated -- reaches a file that already exists. Most days it corrects
+    nothing, and then there is no reason to rewrite five hundred rows to add one.
+    """
+    if old is None or not len(old):
+        new.to_csv(path, index=False, float_format='%.6f')
+        return 'rewrite'
+    overlap_old = old[old['Date'] >= new['Date'].min()].reset_index(drop=True)
+    overlap_new = new[new['Date'] <= old['Date'].max()].reset_index(drop=True)
+    tail = new[new['Date'] > old['Date'].max()]
+    if len(overlap_old) == len(overlap_new) and _same_rows(overlap_old, overlap_new[overlap_old.columns]):
+        if not len(tail):
+            return 'unchanged'
+        # Render the new rows the way the file already renders: Volume arrives as an int and an older
+        # file holds it as a float, and a file with two spellings of the same column invites the next bug.
+        keep = {c: old[c].dtype for c in tail.columns if c in old.columns and c != 'Date'}
+        tail.astype(keep, errors='ignore').to_csv(path, index=False, header=False,
+                                                  float_format='%.6f', mode='a')
+        return 'append'
+    pd.concat([old[old['Date'] < new['Date'].min()], new]).to_csv(path, index=False, float_format='%.6f')
+    return 'rewrite'
+
+
+def _batch(tickers, begin, budget, label):
+    """One request for many tickers instead of one each. yfinance returns a column per (ticker, field)."""
+    if not tickers:
+        return {}
+    if len(tickers) == 1:
+        one = budget.call(tickers[0], lambda: yf.Ticker(tickers[0]).history(
+            start=begin, auto_adjust=False, actions=True))
+        return {tickers[0]: one}
+    raw = budget.call(f'{label} x{len(tickers)}', lambda: yf.download(
+        tickers, start=begin, auto_adjust=False, actions=True, group_by='ticker',
+        progress=False, threads=False))
+    if raw is None or raw.empty:
+        return {}
+    out = {}
+    for t in tickers:
+        if t in raw.columns.get_level_values(0):
+            out[t] = raw[t].dropna(how='all')
+    return out
+
+
 def fetch_prices(tickers, active, start, state, budget, force):
     os.makedirs(PRICES, exist_ok=True)
     now = dt.datetime.now(dt.timezone.utc)
-    skipped, updated = 0, 0
+    skipped, counts = 0, collections.Counter()
+    due = []
     for t in sorted(tickers):
         st = state.setdefault(t, {})
         path = os.path.join(PRICES, f'{t}.csv')
@@ -195,22 +281,35 @@ def fetch_prices(tickers, active, start, state, budget, force):
             skipped += 1
             continue
         old = pd.read_csv(path, parse_dates=['Date']) if os.path.exists(path) and not force else None
-        begin = (old['Date'].max() - pd.Timedelta(days=5)).date() if old is not None and len(old) else start
-        df = budget.call(t, lambda: yf.Ticker(t).history(start=begin, auto_adjust=False, actions=True))
-        st['checked'] = now.isoformat(timespec='seconds')
-        if df is None or df.empty:
-            continue
-        df = df.reset_index()
-        df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None).dt.normalize()
-        df = df[df['Close'].notna()]          # today's row exists before the session has a close
-        if df.empty:
-            continue
-        if old is not None:
-            df = pd.concat([old[old['Date'] < df['Date'].min()], df])
-        df.to_csv(path, index=False, float_format='%.6f')
-        st['last'] = df['Date'].max().date().isoformat()
-        updated += 1
-    return dict(price_skipped=skipped, price_updated=updated)
+        due.append((t, path, old))
+
+    # Two groups, because one request carries one start date: tickers with history need only the
+    # recent window, tickers without need everything. Mixing them would refetch two years for all.
+    fresh = [(t, p, o) for t, p, o in due if o is None or not len(o)]
+    incr = [(t, p, o) for t, p, o in due if o is not None and len(o)]
+    plans = []
+    if fresh:
+        plans.append((fresh, start))
+    for i in range(0, len(incr), BATCH):
+        chunk = incr[i:i + BATCH]
+        plans.append((chunk, min((o['Date'].max() - pd.Timedelta(days=5)).date() for _, _, o in chunk)))
+
+    for chunk, begin in plans:
+        frames = _batch([t for t, _, _ in chunk], begin, budget, 'prices')
+        for t, path, old in chunk:
+            state[t]['checked'] = now.isoformat(timespec='seconds')
+            df = _tidy(frames.get(t))
+            if df is None:
+                continue
+            if old is not None and len(old):
+                df = df[list(old.columns)] if set(old.columns) <= set(df.columns) else df
+            counts[write_bars(path, old, df)] += 1
+            state[t]['last'] = max(df['Date'].max(),
+                                   old['Date'].max() if old is not None and len(old) else df['Date'].max()
+                                   ).date().isoformat()
+    return dict(price_skipped=skipped, price_updated=counts['append'] + counts['rewrite'],
+                price_appended=counts['append'], price_rewritten=counts['rewrite'],
+                price_unchanged=counts['unchanged'])
 
 
 def fetch_hourly(tickers, state, budget, force):
