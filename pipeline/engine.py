@@ -74,6 +74,32 @@ class Calendar:
         return adj if ticker.endswith(CAD_SUFFIXES) else adj * self.fx
 
 
+def option_book(events):
+    """Carrying value of a contract, as deltas the calendar can accumulate.
+
+    A contract has no price history, so an open one is held at what it cost. Selling part of a
+    position removes that part's share of the cost -- not the proceeds. Netting the proceeds instead
+    leaves the remainder under-carried by exactly the realised gain, which is invisible until the
+    position closes and then disappears.
+    """
+    q = cost = prev = 0.0
+    out = []
+    for d, qty, paid in events:
+        if qty > 0:
+            q += qty
+            cost += paid
+        else:
+            sold = min(-qty, max(q, 0.0))
+            avg = cost / q if q > 1e-9 else 0.0
+            cost -= avg * sold
+            q += qty
+            if q <= 1e-9:
+                q = cost = 0.0
+        out.append((d, cost - prev))
+        prev = cost
+    return out
+
+
 def transfer_value(a, cal, d, net, cur):
     """What the shares were worth the day they moved, falling back to the stated book value."""
     if not is_option(a['symbol']):
@@ -101,7 +127,7 @@ def replay(acts, cal):
             key = position_key(a, cal.tmap)
             qty_events[key].append((d, float(a['quantity'])))
             if is_option(a['symbol']):
-                option_cost[key].append((d, cal.to_cad(-net, cur, d)))
+                option_cost[key].append((d, float(a['quantity']), cal.to_cad(-net, cur, d)))
         if t == 'InternalSecurityTransfer':
             # Shares enter or leave a tracked account, and the portfolio revalues them at market. The
             # export states a book value here; using it leaves the difference with nowhere to go, and
@@ -118,7 +144,7 @@ def replay(acts, cal):
     for (acct, key), ev in qty_events.items():
         q = cal.cumulative(ev).round(8)
         if is_option(key):  # no price history for expired contracts: carry open options at cost (CAD at trade date)
-            v = cal.cumulative(option_cost[(acct, key)]).where(q > 0, 0.0)
+            v = cal.cumulative(option_book(option_cost[(acct, key)])).where(q > 0, 0.0)
             option_value += v
         else:
             v = q * cal.price_cad(key)

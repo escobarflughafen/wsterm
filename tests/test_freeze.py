@@ -163,3 +163,48 @@ def test_money_weighted_return_answers_a_different_question(synthetic_market):
     m = engine.mwr(base['total'], base['contrib'])
     assert m is not None and m > 0                # the fixture's VOO rises, so the money earned something
     assert engine.mwr(base['total'] * 0, base['contrib']) is None   # an emptied account has no rate
+
+
+def test_selling_part_of_an_option_leaves_the_rest_at_its_own_cost(synthetic_market):
+    """A contract has no price history, so an open one is carried at cost. Netting the sale proceeds
+    against that cost under-carries the remainder by exactly the realised gain."""
+    import engine
+
+    def opt_row(date, qty, net):
+        return dict(effective_date=date, effective_time='10:00:00', settlement_date='', account_id='A1',
+                    account_type='Non-registered', activity_type='Trade',
+                    activity_sub_type='BUY' if qty > 0 else 'SELL', description='', direction='LONG',
+                    symbol='OPEN  261002C00002500', currency='USD', quantity=str(qty), unit_price='',
+                    commission='0', net_cash_amount=str(net), booked_date=date, order_time='10:00:00')
+
+    deposit = dict(opt_row('2026-01-05', 0, 1000), symbol='', activity_type='MoneyMovement',
+                   activity_sub_type='EFT', quantity='')
+    bought = [deposit, opt_row('2026-01-06', 4, -72)]
+    half = bought + [opt_row('2026-01-20', -2, 56)]
+    cal = engine.Calendar('2026-01-05')
+
+    held = engine.replay(bought, cal)['option_value'].iloc[-1]
+    after = engine.replay(half, cal)['option_value'].iloc[-1]
+    assert float(held) == pytest.approx(72 * 1.4, rel=1e-6)      # four contracts at what they cost
+    assert float(after) == pytest.approx(36 * 1.4, rel=1e-6)     # two left, still at 18 each
+
+    # and the gain is real: proceeds are cash, the remainder keeps its basis
+    assert float(engine.replay(half, cal)['total'].iloc[-1]) == pytest.approx(
+        float(engine.replay(bought, cal)['total'].iloc[-1]) + 20 * 1.4, rel=1e-6)
+
+
+def test_closing_an_option_entirely_leaves_nothing_behind(synthetic_market):
+    import engine
+
+    def opt_row(date, qty, net):
+        return dict(effective_date=date, effective_time='10:00:00', settlement_date='', account_id='A1',
+                    account_type='Non-registered', activity_type='Trade',
+                    activity_sub_type='BUY' if qty > 0 else 'SELL', description='', direction='LONG',
+                    symbol='OPEN  261002C00002500', currency='USD', quantity=str(qty), unit_price='',
+                    commission='0', net_cash_amount=str(net), booked_date=date, order_time='10:00:00')
+
+    acts = [dict(opt_row('2026-01-05', 0, 1000), symbol='', activity_type='MoneyMovement',
+                 activity_sub_type='EFT', quantity=''),
+            opt_row('2026-01-06', 4, -72), opt_row('2026-01-20', -4, 112)]
+    v = engine.replay(acts, engine.Calendar('2026-01-05'))['option_value'].iloc[-1]
+    assert float(v) == 0.0
