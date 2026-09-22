@@ -184,6 +184,7 @@ All via environment (`.env`):
 |---|---|---|
 | `APP_USER` / `APP_PASSWORD` | `admin` / — | HTTP Basic auth. The server refuses to start without a password unless `ALLOW_NO_AUTH=1`. |
 | `FETCH_TIMES` | `17:20` | Weekday auto-fetch times (HH:MM, comma-separated) in `TZ_NAME`. Empty disables. |
+| `DEV_FETCH_TIMES` | *(empty)* | Dev overlay only: the dev compose file forces `FETCH_TIMES` off so a clone never fetches on a schedule. Set this to opt one dev instance back in. |
 | `TZ_NAME` | `America/Toronto` | Scheduler timezone. |
 | `BIND_ADDR` / `PORT` | `127.0.0.1` / `8787` | Where Compose publishes the port. |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted for `X-Forwarded-*`. |

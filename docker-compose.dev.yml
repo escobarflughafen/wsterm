@@ -1,10 +1,12 @@
-# Dev overlay: live code, auto-reload, no scheduled fetches.
+# Dev overlay: live code, auto-reload, and no scheduled fetches unless DEV_FETCH_TIMES says otherwise.
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 services:
   portfolio:
     image: portfolio-terminal:${TAG:-dev}
     environment:
-      FETCH_TIMES: ""
+      # Off by default so a dev clone never fetches on a schedule; set DEV_FETCH_TIMES
+      # in .env (e.g. 17:20) on an instance you actually want to keep current.
+      FETCH_TIMES: "${DEV_FETCH_TIMES:-}"
     volumes:
       - ./pipeline:/app/pipeline:ro
       - ./app:/app/app:ro
