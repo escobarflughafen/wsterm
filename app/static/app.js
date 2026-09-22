@@ -308,6 +308,16 @@ function mwrOf(values, contribs, dates) {
   for (let k = 0; k < 120; k++) { const m = (lo + hi) / 2; if (gap(m) < 0) lo = m; else hi = m; }
   return (lo + hi) / 2;
 }
+// What a stream of money would be worth in a benchmark. `index` is series.bench[b].twr, which is
+// adj/adj[0]; each flow buys units at that day's level and the base cancels, so an account's
+// counterfactual needs no data the browser does not already hold.
+function benchValueOf(index, flows) {
+  let units = 0;
+  return flows.map((f, i) => {
+    if (index[i]) units += f / index[i];
+    return units * index[i];
+  });
+}
 function rangeStart(dates, range) {
   if (range === 'ALL') return 0;
   const end = new Date(dates[dates.length - 1]);
@@ -440,18 +450,31 @@ const SCREEN = {
       const c = (sr.account_contrib && sr.account_contrib[acct] ? sr.account_contrib[acct] : sr.contrib).slice(i0);
       const added = c[c.length - 1] - c[0];                       // deposits and transfers in this range
       const change = v[v.length - 1] - v[0];                      // what the balance did
+      // The benchmark starts level with the account and then receives the same deposits on the
+      // same days, so the comparison is about the range rather than about when each began.
+      const flows = c.map((x, i) => (i ? x - c[i - 1] : v[0]));
+      const marks = Object.entries(sr.bench).map(([b, x]) => {
+        const idx = x.twr.slice(i0);
+        const values = benchValueOf(idx, flows);
+        return { b, short: b.replace('.TO', ''), values,
+                 gain: values[values.length - 1] - v[0] - added,
+                 ret: idx[idx.length - 1] / idx[0] - 1 };
+      });
+      const gainYou = change - added;
       series = [
         { name: acct.toUpperCase(), short: 'VALUE', color: 'var(--s1)', values: v },
+        ...marks.map(m => ({ name: `SAME MONEY IN ${m.short}`, short: m.short,
+                             color: benchColor(m.b), values: m.values })),
         { name: 'NET DEPOSITED', short: 'DEPOSITED', color: 'var(--ref)', width: 1.5, values: c },
       ];
       yfmt = v => money(v);
       statsEl = h('div', { class: 'stats' },
         stat('VALUE', money(v[v.length - 1]), `${dates[0]} → ${dates[dates.length - 1]}`),
-        stat('BALANCE CHANGE', signed(change), 'money added + investment gain'),
         stat('MONEY ADDED', signed(added), 'deposits and transfers in range'),
-        stat('INVESTMENT GAIN', signed(change - added), 'balance change minus money added'),
-        stat('RETURN', signedPct(twrOf(v, c)), 'time-weighted · every day counts alike'),
-        stat('ON YOUR MONEY', signedPct(mwrOf(v, c, dates)), 'annualised · every dollar counts alike'));
+        stat('INVESTMENT GAIN', signed(gainYou), h('span', {}, 'time-weighted: ', signedPct(twrOf(v, c)))),
+        stat('ON YOUR MONEY', signedPct(mwrOf(v, c, dates)), 'annualised · every dollar counts alike'),
+        ...marks.map(m => stat(`${m.short} INSTEAD`, signed(m.gain),
+          h('span', {}, 'you vs it: ', signed(gainYou - m.gain), ' · ', signedPP(twrOf(v, c) - m.ret)))));
     } else if (state.mode === 'GAIN') {
       // Money made or lost inside the range: value change minus money put in, so 0 = break even.
       const dep = P.contrib.slice(i0), base = dep[0];
