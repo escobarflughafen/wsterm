@@ -35,7 +35,7 @@ def _series(ticker, cal, cad=True, days=None):
     out = raw.reindex(raw.index.union(days)).sort_index().ffill().reindex(days)
     out.loc[out.index < raw.index[0]] = float('nan')
     out.loc[out.index > raw.index[-1]] = float('nan')
-    if cad and not ticker.endswith(engine.CAD_SUFFIXES):
+    if cad and not engine.quoted_in_cad(ticker):
         out = out * cal.fx.reindex(days).ffill().bfill()
     return out, raw.index[-1]
 
@@ -64,7 +64,7 @@ def _forward_point(series, day, horizon):
 
 def _quote_in_currency(value, ticker, currency, fx):
     """Convert a Yahoo quote into the broker ledger currency used for cost/share."""
-    quoted_cad = ticker.endswith(engine.CAD_SUFFIXES)
+    quoted_cad = engine.quoted_in_cad(ticker)
     if currency == 'CAD' and not quoted_cad:
         return value * fx
     if currency == 'USD' and quoted_cad:

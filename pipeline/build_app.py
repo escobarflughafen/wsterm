@@ -16,7 +16,6 @@ import engine
 
 APP = str(BUILD_DIR)
 CFG = engine.CFG
-CAD_SUFFIXES = engine.CAD_SUFFIXES
 is_option = engine.is_option
 
 
@@ -200,7 +199,7 @@ def main():
             closes = df['Close'].dropna()  # today's row can exist before the session has a close
             now = float(closes.iloc[-1]) * factor if len(closes) else None  # today's price in trade-date share units
             if now is not None:
-                if cur == 'CAD' and not t.endswith(CAD_SUFFIXES):
+                if cur == 'CAD' and not engine.quoted_in_cad(t):
                     now *= fx_now
                 edge = (now - price) * q  # buy: gain since; sell: negative if it kept rising
                 if q < 0:
@@ -315,8 +314,17 @@ def main():
         rules.append(dict(id=rid, name=names.get('en') or name, names=names, spec=name,
                           ok=ok, detail=detail, items=list(items)))
 
-    big = [f"{x['acct']} {x['sym']} {x['weight']:.1%}" for x in rows
-           if x['cat'] == 'stocks' and x['weight'] > R['max_single_stock_pct']]
+    # The cap is on exposure to one company, so the same ticker held in several accounts counts once.
+    by_sym = collections.defaultdict(list)
+    for x in rows:
+        if x['cat'] == 'stocks':
+            by_sym[x['sym']].append(x)
+    big = []
+    for sym, xs in by_sym.items():
+        exposure = sum(x['weight'] for x in xs)
+        if exposure > R['max_single_stock_pct']:
+            split = ', '.join('%s %.1f%%' % (x['acct'], x['weight'] * 100) for x in xs)
+            big.append(f"{sym} {exposure:.1%}" + (f" ({split})" if len(xs) > 1 else ''))
     rule('single_stock', f"SINGLE STOCK ≤ {R['max_single_stock_pct']:.0%} OF TOTAL", not big, 'All positions within limit' if not big else f'{len(big)} over limit', big)
     spec_pct = alloc['speculative'] / invested if invested else 0
     rule('speculative', f"SPECULATIVE ≤ {R['max_speculative_pct_of_invested']:.0%} OF INVESTED", spec_pct <= R['max_speculative_pct_of_invested'],

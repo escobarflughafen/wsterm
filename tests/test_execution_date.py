@@ -57,3 +57,63 @@ def test_trade_ids_survive_the_correction(tmp_path):
     before = engine.trade_id(raw)
     after = engine.trade_id(ledger.load_activities(write(tmp_path, [dict(raw)]))[0])
     assert before == after
+
+
+FX_BUY = 'QQQ - Invesco QQQ Trust: Bought 3.0000 shares at $883.18 per share (executed at 2026-04-14), FX Rate: 1.4000'
+
+
+def test_a_us_buy_paid_in_cad_is_restated_in_usd(tmp_path):
+    """The sell comes back in USD; the buy has to be in the same currency or the position never closes."""
+    path = write(tmp_path, [dict(row('2026-04-14', '16:49:02', FX_BUY, qty='3', price='883.18', net='-2649.54'),
+                                 currency='CAD')])
+    a = ledger.load_activities(path)[0]
+    assert a['currency'] == 'USD'
+    assert abs(float(a['unit_price']) - 630.8428571) < 1e-6
+    assert a['net_cash_amount'] == '-1892.53'
+    assert (a['booked_currency'], a['booked_net_cash_amount']) == ('CAD', '-2649.54')
+    assert ledger.cash_leg(a) == ('CAD', -2649.54)  # the CAD that actually left the account
+
+
+def test_a_cdr_bought_in_cad_stays_in_cad(tmp_path):
+    path = write(tmp_path, [dict(row('2026-05-08', '08:04:18', 'NVDA - Nvidia CDR (CAD Hedged): Bought 50.0000 shares '
+                                     '(executed at 2026-05-08)', qty='50', price='48.58', net='-2429'), currency='CAD')])
+    a = ledger.load_activities(path)[0]
+    assert (a['currency'], a['net_cash_amount']) == ('CAD', '-2429')
+
+
+def test_a_round_trip_across_currencies_leaves_no_position(tmp_path):
+    path = write(tmp_path, [
+        dict(row('2026-04-14', '16:49:02', FX_BUY, qty='3', price='883.18', net='-2649.54'), currency='CAD'),
+        row('2026-05-13', '10:00:00', 'Sold 3.0000 shares (executed at 2026-05-13), FX Rate: 1.3699',
+            qty='-3', price='713.52', net='2140.56'),
+    ])
+    pos = ledger.build_positions(ledger.load_activities(path))
+    assert all(abs(p['q']) < 1e-9 for p in pos.values())
+    assert list(pos) == [('TFSA', 'VOO', 'USD')]
+
+
+def test_trade_ids_survive_the_currency_restatement(tmp_path):
+    raw = dict(row('2026-04-14', '16:49:02', FX_BUY, qty='3', price='883.18', net='-2649.54'), currency='CAD')
+    assert engine.trade_id(raw) == engine.trade_id(ledger.load_activities(write(tmp_path, [dict(raw)]))[0])
+
+
+def test_a_us_sell_booked_in_usd_keeps_its_cash_in_usd(tmp_path):
+    """The rate is printed on every US trade, including ones paid from USD cash, so it moves nothing by itself."""
+    path = write(tmp_path, [row('2026-05-13', '10:00:00', 'Sold 3.0000 shares (executed at 2026-05-13), FX Rate: 1.4000',
+                                qty='-3', price='700', net='2100')])
+    a = ledger.load_activities(path)[0]
+    assert (a['currency'], a['net_cash_amount']) == ('USD', '2100')
+    assert ledger.cash_leg(a) == ('USD', 2100.0)
+
+
+def test_an_expired_option_closes_and_realises_its_premium(tmp_path):
+    sym = 'ASTS  260918C00060000'
+    buy = dict(row('2026-09-18', '11:30:35', f'{sym}: Bought 2 contract (executed at 2026-09-18), FX Rate: 1.4000',
+                   qty='2', price='3', net='-6'), symbol=sym)
+    expiry = dict(row('2026-09-18', '13:15:00', f'{sym}: Expired 2 contract (executed at 2026-09-18)', qty='-2'),
+                  symbol=sym, activity_type='OptionExpiry', activity_sub_type='-', currency='', unit_price='',
+                  net_cash_amount='', commission='')
+    acts = ledger.load_activities(write(tmp_path, [buy, expiry]))
+    assert [ledger.cash_leg(a) for a in acts] == [('USD', -6.0), ('USD', 0.0)]
+    p = ledger.build_positions(acts)[('TFSA', sym, 'USD')]
+    assert abs(p['q']) < 1e-9 and p['realized'] == -6

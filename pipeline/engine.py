@@ -3,12 +3,17 @@ import collections, hashlib, json, os
 
 import pandas as pd
 
-from ledger import build_positions
+from ledger import build_positions, cash_leg
 from settings import CONFIG_PATH
 from prices import history, ticker_map, fx_usdcad
 
 CFG = json.load(open(CONFIG_PATH))
 CAD_SUFFIXES = ('.TO', '.NE', '-CAD')
+
+
+def quoted_in_cad(ticker):
+    """Whether Yahoo quotes this ticker in CAD. The USD class of a TSX listing (UBIL-U.TO) trades in USD."""
+    return ticker.endswith(CAD_SUFFIXES) and not ticker.endswith('-U.TO')
 CASH_ETF = CFG.get('cash_etf') or ''   # whichever cash ETF this install parks money in; never assumed
 
 
@@ -20,7 +25,7 @@ def trade_id(a):
     # Hash what the broker booked, not the resolved execution date, so ids stay stable across that fix
     # and keep matching anything the user already selected in a simulation.
     raw = '|'.join([a.get('booked_date') or a['effective_date'], a.get('order_time') or a['effective_time']]
-                   + [a[k] for k in ('account_id', 'symbol', 'quantity', 'net_cash_amount')])
+                   + [a[k] for k in ('account_id', 'symbol', 'quantity')] + [a.get('booked_net_cash_amount') or a['net_cash_amount']])
     return hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
@@ -65,13 +70,13 @@ class Calendar:
         if ticker not in self._px:
             px = as_traded_close(ticker)
             px = px.reindex(px.index.union(self.days)).ffill().reindex(self.days).fillna(0.0)
-            self._px[ticker] = px if ticker.endswith(CAD_SUFFIXES) else px * self.fx
+            self._px[ticker] = px if quoted_in_cad(ticker) else px * self.fx
         return self._px[ticker]
 
     def adj_cad(self, ticker):
         df = history(ticker)
         adj = df['Adj Close'].reindex(df.index.union(self.days)).ffill().reindex(self.days).bfill()
-        return adj if ticker.endswith(CAD_SUFFIXES) else adj * self.fx
+        return adj if quoted_in_cad(ticker) else adj * self.fx
 
 
 def option_book(events):
@@ -133,8 +138,10 @@ def replay(acts, cal):
             # export states a book value here; using it leaves the difference with nowhere to go, and
             # the return series books it as a gain on the transfer day.
             flow_events[a['account_type']].append((d, transfer_value(a, cal, d, net, cur)))
-        elif net:
-            cash_events[(a['account_type'], cur)].append((d, net))
+        else:
+            ccur, cash = cash_leg(a)
+            if cash:
+                cash_events[(a['account_type'], ccur)].append((d, cash))
         if t == 'MoneyMovement':
             flow_events[a['account_type']].append((d, cal.to_cad(net, cur, d)))
 
@@ -257,7 +264,8 @@ def apply_exclusions(acts, exclude, tmap):
                 clipped.append((a['effective_date'], a['account_type'], a['symbol'], -q, 0.0))
                 continue
             scale = avail / -q
-            a = dict(a, quantity=str(-avail), net_cash_amount=str(float(a['net_cash_amount'] or 0) * scale))
+            a = dict(a, quantity=str(-avail), net_cash_amount=str(float(a['net_cash_amount'] or 0) * scale),
+                     cash_amount=str(cash_leg(a)[1] * scale))
             clipped.append((a['effective_date'], a['account_type'], a['symbol'], -q, avail))
             q = -avail
         held[key] += q
@@ -275,9 +283,9 @@ def redirect_cash(actual, sim, ticker, cal, acts_actual, acts_sim):
     def cash_by_currency(acts):
         events = collections.defaultdict(list)
         for a in acts:
-            net = float(a['net_cash_amount'] or 0)
+            cur, net = cash_leg(a)
             if net and a['activity_type'] != 'InternalSecurityTransfer':
-                events[a['currency']].append((pd.Timestamp(a['effective_date']), net))
+                events[cur].append((pd.Timestamp(a['effective_date']), net))
         return {cur: cal.cumulative(ev) for cur, ev in events.items()}
 
     before, after = cash_by_currency(acts_actual), cash_by_currency(acts_sim)
